@@ -1,0 +1,382 @@
+# Semantic layer for courtside_nba.db.
+#
+# Every statement here was checked against the data or against the source projects' own
+# documentation (nba-lineup-analytics DESIGN.md, analysis.py), not assumed. The test
+# tests/test_semantic.py fails if a table or column here stops matching the database, so
+# this file cannot silently drift. It is the single largest lever on answer quality and is
+# therefore an ablation axis (config B) in the benchmark.
+
+database: courtside_nba
+summary: >
+  NBA 2025-26 regular season: 1,230 games from 2025-10-21 to 2026-04-12, every five-man
+  lineup rebuilt from play-by-play with an estimate of how much of each lineup's rating is
+  real, per-player box scores, player impact (RAPM), play-type efficiency, and 2026-27
+  contracts. Descriptive, not predictive: it holds no forecasts.
+
+scope:
+  stats: "2025-26 regular season only. No playoffs, no other seasons."
+  contracts: "2026-27 salaries (NEXT season), not the salaries paid in 2025-26."
+  refuse_when: >
+    The question needs another season, the playoffs, a prediction or betting advice, or data this
+    database does not hold (injuries, news, draft, shot locations, tracking data).
+
+rules:
+  - id: rank_lineups_honestly
+    text: >
+      Never rank lineups by raw net_rating. Lineups with a handful of possessions have
+      ratings like +600. Rank by `shrunk` (the noise-corrected estimate) or filter to poss >= 100
+      and say so. Always report poss with any lineup rating.
+  - id: distinguishable_is_rare
+    text: >
+      `distinguishable = 1` means the 95% interval (lo95 to hi95) excludes the LEAGUE-AVERAGE
+      lineup rating (mu = -0.68), not zero. Only 4 of 17,733 lineups qualify. When asked for the
+      "best" lineup, say how few are statistically separable from average instead of presenting
+      a clean winner.
+  - id: games_played_means_minutes_not_null
+    text: >
+      player_game_stats has one row per rostered player per game, including players who did not
+      play. minutes IS NULL means did not play (5,528 rows, all with zero stats). For per-game
+      averages or games played, filter minutes IS NOT NULL (3 more rows have minutes = 0).
+  - id: contracts_are_next_season
+    text: >
+      contracts hold 2026-27 salaries while all performance data is 2025-26. When combining them,
+      say so. 6 traded players have two contract rows (one per team) with the SAME salary, so
+      never SUM salary per player; use DISTINCT player_id or MAX(salary). A team's payroll counts
+      every row on that team.
+  - id: lineup_keys
+    text: >
+      Join lineup_stats, lineup_bootstrap on lineup_uid only (it contains the season and team).
+      lineup_bootstrap lacks 32 lineups, so use LEFT JOIN from lineup_stats.
+  - id: find_player_in_lineup
+    text: >
+      lineup_stats.lineup is player ids joined by '-'. To test membership use
+      ('-' || lineup || '-') LIKE ('%-' || <player_id> || '-%'). A bare LIKE '%<id>%' also matches
+      longer ids. lineup_stats.players holds FAMILY NAMES only, comma-separated.
+  - id: names_and_ids
+    text: >
+      Resolve a person to player_id first, then filter by id. players has first_name and family_name
+      (with diacritics, e.g. Jokić, Šarić). Full name = first_name || ' ' || family_name.
+      Teams: team columns named `team` and *_abbr hold 3-letter abbreviations (BOS); *_team_id
+      columns hold ids; join teams to translate.
+  - id: units
+    text: >
+      Ratings are points per 100 possessions. poss is a real number because possessions are split
+      half-and-half between the two sides. Percentages in *_pct columns are fractions 0-1.
+      Salaries are whole US dollars.
+  - id: players_traded
+    text: >
+      A player's team is a fact about a game, not the player (players has no team_id). Use
+      player_game_stats.team_id for who a player played for. player_season.teams is text like
+      'WAS → DAL' for a traded player.
+  - id: games_results
+    text: >
+      games has home and away points, no winner column and no ties. Home win = home_pts > away_pts.
+      Each team plays 82 games. game_date is ISO text (YYYY-MM-DD).
+  - id: always_bound_results
+    text: Add LIMIT to any query that lists rows, and prefer aggregating in SQL.
+
+metrics:
+  off_rating: "pts_for / poss_for * 100: points scored per 100 possessions."
+  def_rating: "pts_against / poss_against * 100: points allowed per 100 possessions (lower is better)."
+  net_rating: "off_rating - def_rating, per 100 possessions. Observed, noisy, garbage time excluded."
+  poss: "Possessions the lineup played, (poss_for + poss_against) / 2. The sample size."
+  shrunk: >
+    Empirical-Bayes estimate of the lineup's true net rating: the observed rating pulled toward the
+    league mean (-0.68) in proportion to how little was observed. Use this to rank lineups.
+  post_sd: "Posterior standard deviation of shrunk. lo95/hi95 = shrunk -/+ 1.96 * post_sd."
+  weight: "Share of the observed rating that survives shrinkage, 0-1; rises with possessions."
+  distinguishable: >
+    1 if the 95% interval excludes the league-average lineup rating, i.e. lo95 > mu or hi95 < mu
+    where mu = noise_model.mu (-0.68); else 0. Two of the four flagged lineups have lo95 slightly
+    below 0, so this is NOT the same as "excludes zero".
+  net_rating_luck: >
+    net_rating after resetting OPPONENT three-point and free-throw conversion to league rates (36.1%
+    and 78.4%); attempts are unchanged. A luck-adjusted view of the same lineup.
+  rapm: >
+    Regularised adjusted plus-minus: a player's estimated impact in points per 100 possessions after
+    adjusting for teammates and opponents. o_rapm + d_rapm = rapm. Pooled across all loaded seasons
+    (here only 2025-26). Noisy below a few thousand possessions; check poss.
+  ppp: "Points per possession in a play type. For defence this is points ALLOWED per possession, so lower is better."
+
+tables:
+  teams:
+    purpose: The 30 teams.
+    grain: one row per team
+    columns:
+      team_id: NBA team id (e.g. 1610612738).
+      abbr: Three-letter abbreviation (BOS).
+      city: City name.
+      name: Nickname without the city (Celtics).
+  players:
+    purpose: Player directory.
+    grain: one row per player (591)
+    columns:
+      player_id: NBA player id.
+      first_name: First name (may be like 'T.J.').
+      family_name: Family name, with diacritics.
+  games:
+    purpose: Final scores of the 1,230 regular-season games.
+    grain: one row per game
+    columns:
+      game_id: Ten-character NBA game id (text).
+      season: "'2025-26'."
+      game_date: ISO date text.
+      home_team_id: Home team id.
+      away_team_id: Away team id.
+      home_abbr: Home team abbreviation.
+      away_abbr: Away team abbreviation.
+      home_pts: Home final points.
+      away_pts: Away final points.
+  player_game_stats:
+    purpose: Box score line per player per game, including players who did not play.
+    grain: one row per player per game (32,179)
+    notes:
+      - minutes IS NULL means did not play. Filter minutes IS NOT NULL for games played.
+      - Exactly five rows per team per game have is_starter = 1.
+    columns:
+      game_id: Game id (joins games.game_id).
+      player_id: Player id.
+      team_id: Team the player played for in that game.
+      is_starter: 1 if the player started.
+      minutes: Minutes played (decimal); NULL = did not play.
+      points: Points.
+      rebounds: Total rebounds.
+      oreb: Offensive rebounds.
+      dreb: Defensive rebounds.
+      assists: Assists.
+      steals: Steals.
+      blocks: Blocks.
+      fgm: Field goals made.
+      fga: Field goals attempted.
+      fg3m: Three-pointers made.
+      fg3a: Three-pointers attempted.
+      ftm: Free throws made.
+      fta: Free throws attempted.
+      turnovers: Turnovers.
+      plus_minus: Team point margin while the player was on court.
+  player_season:
+    purpose: Season totals of on-court possessions and net margin per player.
+    grain: one row per player (577)
+    columns:
+      season: "'2025-26'."
+      player_id: Player id.
+      name: Full name.
+      teams: Team abbreviation, or 'WAS → DAL' for a traded player.
+      games: Games played.
+      poss: Possessions on court.
+      poss_for: Team possessions on offence while on court.
+      poss_against: Opponent possessions while on court.
+      plus_minus: Total point margin while on court.
+      on_court_net: Net rating while on court, per 100 possessions.
+      lineups: Number of distinct five-man lineups the player appeared in.
+  player_rapm:
+    purpose: Player impact estimate (RAPM) from the lineup ridge model.
+    grain: one row per player (582)
+    notes:
+      - "poss is exposure; RAPM for low-poss players is noise."
+    columns:
+      player_id: Player id.
+      name: Full name.
+      o_rapm: Offensive impact, points per 100 possessions.
+      d_rapm: Defensive impact, points per 100 possessions (positive is good).
+      rapm: o_rapm + d_rapm.
+      poss: Possessions of evidence.
+  lineup_stats:
+    purpose: Every five-man lineup of a team with its rating and uncertainty.
+    grain: one row per lineup per team (17,733)
+    notes:
+      - Garbage-time stints are excluded.
+      - Only 234 lineups have poss >= 100 and only 4 are distinguishable from the league average.
+      - Never rank by raw net_rating (see rank_lineups_honestly).
+    columns:
+      season: "'2025-26'."
+      team_id: Team id.
+      team: Team abbreviation.
+      players: Family names, comma-separated (display only).
+      lineup: Player ids joined by '-' (sorted).
+      lineup_uid: "Key: season|team_id|player ids. Join lineup tables on this."
+      minutes: Minutes the lineup played.
+      poss: Possessions (sample size).
+      poss_for: Team possessions on offence.
+      poss_against: Opponent possessions.
+      stints: Separate stretches the lineup was on court.
+      games: Games the lineup appeared in.
+      pts_for: Points scored.
+      pts_against: Points allowed.
+      off_rating: Points scored per 100 possessions.
+      def_rating: Points allowed per 100 possessions.
+      net_rating: off_rating - def_rating (observed, noisy).
+      def_rating_luck: def_rating after resetting opponent 3PT/FT luck.
+      net_rating_luck: off_rating - def_rating_luck.
+      shrunk: Noise-corrected estimate of true net rating. Rank by this.
+      post_sd: Posterior standard deviation of shrunk.
+      lo95: Lower 95% bound of shrunk.
+      hi95: Upper 95% bound of shrunk.
+      weight: Share of the observed rating kept after shrinkage (0-1).
+      distinguishable: 1 if the 95% interval excludes the league-average lineup rating (noise_model.mu), else 0.
+      gap_poss: Possessions that fall in play-by-play periods with data gaps.
+      gap_share: gap_poss / poss, 0-1; high values mean less reliable reconstruction.
+  lineup_bootstrap:
+    purpose: Cluster-bootstrap check of lineup intervals (a robustness cross-check on lineup_stats).
+    grain: one row per resampleable lineup (17,701; 32 lineups missing)
+    notes:
+      - Use LEFT JOIN from lineup_stats. boot_* columns are NULL where a lineup could not be resampled.
+    columns:
+      season: "'2025-26'."
+      team_id: Team id.
+      team: Team abbreviation.
+      players: Family names, comma-separated.
+      lineup: Player ids joined by '-'.
+      lineup_uid: Key; joins lineup_stats.lineup_uid.
+      poss: Possessions.
+      stints_resampled: Stints available to resample.
+      net_rating: Observed net rating.
+      shrunk: Analytic shrunk estimate (same as lineup_stats).
+      post_sd: Analytic posterior sd.
+      lo95: Analytic lower bound.
+      hi95: Analytic upper bound.
+      analytic_sd: Analytic sampling sd of the observed rating.
+      boot_sd: Bootstrap sd (NULL if not estimable).
+      inflation: boot_sd / analytic_sd (NULL if not estimable); above 1 means the analytic interval is too narrow.
+      boot_shrunk: Shrunk estimate using bootstrap-corrected noise.
+      boot_post_sd: Posterior sd using bootstrap-corrected noise.
+      boot_lo95: Lower bound using bootstrap-corrected noise.
+      boot_hi95: Upper bound using bootstrap-corrected noise.
+      distinguishable: Analytic distinguishable flag.
+      boot_distinguishable: Distinguishable flag using bootstrap-corrected noise.
+  noise_model:
+    purpose: Parameters of the empirical-Bayes model behind shrunk (one row).
+    grain: single row
+    columns:
+      mu: League mean lineup net rating used as the prior mean (-0.68).
+      tau_sq: Variance of true lineup quality.
+      sigma_sq: Noise scale; the sampling variance of a rating is roughly sigma_sq divided by the exposure.
+      true_sd: sqrt(tau_sq), the true spread of lineup quality (about 7.8 per 100).
+      n_lineups: Lineups in the fit.
+      rating: Which rating was modelled.
+      weighting: Weighting scheme (irls).
+      iterations: Iterations to converge.
+      converged: 1 if converged.
+      season: "'2025-26'."
+      garbage_excluded: 1 if garbage time was excluded.
+  coverage_season:
+    purpose: Season-level data quality of the play-by-play reconstruction (one row).
+    grain: single row
+    columns:
+      season: "'2025-26'."
+      games: Games in the season.
+      games_parsed: Games parsed.
+      games_reconciled: Games whose reconstruction reconciles with the box score.
+      games_with_gaps: Games with at least one data gap.
+      periods_with_gaps: Periods with a gap.
+      minutes_total: Total floor minutes.
+      minutes_affected: Minutes inside gap periods.
+      share_affected: minutes_affected / minutes_total.
+      garbage_share: Share of floor time classed as garbage time.
+  coverage_team:
+    purpose: Data quality per team.
+    grain: one row per team (30)
+    columns:
+      season: "'2025-26'."
+      team_id: Team id.
+      minutes_total: Floor minutes.
+      minutes_affected: Minutes inside gap periods.
+      games: Games.
+      games_with_gaps: Games with gaps.
+      share_affected: minutes_affected / minutes_total.
+      team: Team abbreviation.
+  contracts:
+    purpose: 2026-27 player contracts.
+    grain: one row per player per team (414 rows, 408 players)
+    notes:
+      - Salaries are for 2026-27, not 2025-26.
+      - 6 traded players appear twice with the same salary; do not SUM per player.
+    columns:
+      season: "'2026-27'."
+      player_id: Player id.
+      team_id: Team holding the contract.
+      salary: 2026-27 salary in dollars.
+      option: "'none', 'player' or 'team' option on the final year."
+      guaranteed: Total guaranteed money in dollars (NULL for 34 rows; the source did not give a figure).
+      source: Where the figure came from.
+  cap_rules:
+    purpose: Salary cap thresholds for 2025-26 and 2026-27 (two rows).
+    grain: one row per season
+    columns:
+      season: Season label.
+      salary_cap: Salary cap, dollars.
+      min_team_salary: Minimum team payroll, dollars.
+      tax_level: Luxury tax line, dollars.
+      first_apron: First apron, dollars.
+      second_apron: Second apron, dollars.
+      nontax_mle: Non-taxpayer mid-level exception, dollars.
+      tax_mle: Taxpayer mid-level exception, dollars.
+      room_mle: Room mid-level exception, dollars.
+      source: Source URL.
+  player_positions:
+    purpose: Listed position per player.
+    grain: one row per player (582)
+    columns:
+      season: "'2025-26'."
+      player_id: Player id.
+      position: "One of G, G-F, F-G, F, F-C, C-F, C."
+  play_types:
+    purpose: Lookup of the 11 play types.
+    grain: one row per play type
+    columns:
+      play_type_id: Code used in the stats tables (e.g. PRBallHandler).
+      label: Readable name (e.g. 'P&R ball handler').
+      has_player_defence: 1 if player-level defensive data exists for this play type.
+      sort_order: Display order.
+  player_play_type_stats:
+    purpose: Player efficiency by play type, offence and defence.
+    grain: one row per player per play type per side (5,937; minimum 10 possessions)
+    columns:
+      season: "'2025-26'."
+      player_id: Player id.
+      play_type_id: Joins play_types.play_type_id.
+      side: "'offensive' or 'defensive'."
+      team_id: Team.
+      gp: Games played.
+      poss: Possessions of this play type.
+      pts: Points.
+      fgm: Field goals made.
+      fga: Field goals attempted.
+      ppp: Points per possession.
+      poss_pct: Share of the player's possessions that are this play type (fraction).
+      efg_pct: Effective field-goal percentage (fraction).
+      fg_pct: Field-goal percentage (fraction).
+      tov_poss_pct: Turnover share of possessions (fraction).
+      sf_poss_pct: Shooting-foul share of possessions (fraction).
+      score_poss_pct: Share of possessions that score (fraction).
+      percentile: Rank among players, 0-1. Direction on the defensive side is not documented here; say so rather than guess.
+  team_play_type_stats:
+    purpose: Team efficiency by play type, offence and defence.
+    grain: one row per team per play type per side (660)
+    columns:
+      season: "'2025-26'."
+      team_id: Team.
+      play_type_id: Joins play_types.play_type_id.
+      side: "'offensive' or 'defensive'."
+      gp: Games.
+      poss: Possessions.
+      pts: Points.
+      fgm: Field goals made.
+      fga: Field goals attempted.
+      ppp: Points per possession.
+      poss_pct: Share of the team's possessions (fraction).
+      efg_pct: Effective field-goal percentage (fraction).
+      fg_pct: Field-goal percentage (fraction).
+      tov_poss_pct: Turnover share of possessions (fraction).
+      sf_poss_pct: Shooting-foul share of possessions (fraction).
+      score_poss_pct: Share of possessions that score (fraction).
+      percentile: Rank among teams, 0-1. Direction on the defensive side is not documented here.
+  provenance:
+    purpose: Where each table in this database was copied from. Not useful for basketball questions.
+    grain: one row per table
+    columns:
+      table_name: Table name.
+      source: Source project ("lineup" or "tactical").
+      source_file: Source file name.
+      source_sha256: Hash of the source file.
+      rows: Rows copied.

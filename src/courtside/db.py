@@ -86,22 +86,40 @@ def open_readonly(path: str | Path, *, authorizer: bool = True) -> sqlite3.Conne
     return con
 
 
+def table_schema(con: sqlite3.Connection) -> dict[str, list[tuple[str, str]]]:
+    """Every table in the file as ``{table: [(column, declared type), ...]}``.
+
+    This is trusted introspection that the model never calls: the authorizer denies reading
+    sqlite_master and PRAGMA, so it is lifted for these constant queries and restored in
+    ``finally``. Table names come from sqlite_master itself, and are quoted when interpolated.
+    """
+    con.set_authorizer(None)
+    try:
+        names = [
+            r[0]
+            for r in con.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' "
+                "AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            )
+        ]
+        return {
+            n: [
+                (c[1], c[2])
+                for c in con.execute(f'PRAGMA table_info("{n.replace(chr(34), chr(34) * 2)}")')
+            ]
+            for n in names
+        }
+    finally:
+        install_authorizer(con)
+
+
 def list_tables(con: sqlite3.Connection) -> list[str]:
     """Every table in the file, for use as the validator's catalog.
 
     Passing the real list (not a hand-written subset) means an error message can never name
-    a table the validator would have hidden. The authorizer denies reading sqlite_master, so
-    it is lifted for this one constant query and restored in ``finally``.
+    a table the validator would have hidden.
     """
-    con.set_authorizer(None)
-    try:
-        rows = con.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' "
-            "ORDER BY name"
-        ).fetchall()
-    finally:
-        install_authorizer(con)
-    return [r[0] for r in rows]
+    return sorted(table_schema(con))
 
 
 def _clip(value: Any, max_chars: int) -> Any:

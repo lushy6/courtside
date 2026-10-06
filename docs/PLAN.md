@@ -11,7 +11,7 @@ Status: PLAN ONLY. Nothing here has been built or run. Every number marked *(est
 
 ## 1. Goal and non-goals
 
-**Goal.** Ask "which Celtics lineups with 200+ possessions have a net rating we can actually distinguish from zero?"
+**Goal.** Ask "which Celtics lineups with 200+ possessions have a net rating we can actually distinguish from the league average?"
 and get a correct answer, the SQL behind it, and a plain statement of how sure the data is.
 
 **What makes it more than a demo**
@@ -111,7 +111,7 @@ Claude adapter defaults: `claude-opus-5`, `thinking: {type: "adaptive"}`, `outpu
 Per table: purpose, grain, key columns. Per metric: definition and units. Gotchas, taken from your own code and DESIGN.md:
 
 - `net_rating` is per 100 possessions; `poss` is the sample size; raw `net_rating` on small `poss` is noise.
-- `shrunk` / `post_sd` / `lo95` / `hi95` are the empirical-Bayes estimate and interval; `distinguishable` = interval excludes zero.
+- `shrunk` / `post_sd` / `lo95` / `hi95` are the empirical-Bayes estimate and interval; `distinguishable` = interval excludes the league-average lineup rating (mu = -0.68), NOT zero (found by the semantic-layer drift tests).
 - `lineup_uid` is **season-scoped**; join lineup tables only on it. `lineup_stats` -> `lineup_bootstrap` is a LEFT join (some lineups have no bootstrap row).
 - `player_rapm` is **pooled across all loaded seasons**, and the DB holds one season.
 - `garbage` stints are excluded from some tables. Say which.
