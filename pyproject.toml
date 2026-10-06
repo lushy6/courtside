@@ -35,6 +35,8 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 [tool.ruff.lint.per-file-ignores]
 # Attack and fixture SQL strings read better on one line than wrapped.
 "tests/*" = ["E501"]
+# A 60-word stopword list reads better as one split string than as 60 quoted literals.
+"src/courtside/entities.py" = ["SIM905"]
 
 [tool.mypy]
 python_version = "3.12"
