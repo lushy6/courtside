@@ -13,6 +13,7 @@ stopped by the executor's time limit.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 
 import sqlglot
@@ -61,6 +62,11 @@ _FORBIDDEN_NODES: tuple[type[exp.Expr], ...] = (
 
 _SET_OPERATIONS: tuple[type[exp.Expr], ...] = (exp.Union, exp.Intersect, exp.Except)
 
+MAX_SQL_CHARS = 20_000
+_CALL = re.compile(r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+# Syntax that looks like a call but is not a SQLite function, so the authorizer never sees it.
+_SYNTAX_CALLS = frozenset({"cast", "exists"})
+
 
 def validate_select(sql: str, allowed_tables: Iterable[str] | None = None) -> str:
     """Return ``sql`` unchanged if it is a single safe SELECT, else raise ``QueryRejected``.
@@ -70,17 +76,36 @@ def validate_select(sql: str, allowed_tables: Iterable[str] | None = None) -> st
     database does. CTE names are not tables and are exempt.
 
     The original text is returned, not a regenerated string, so what runs is what the
-    author wrote; the two later layers exist precisely so a parser disagreement here
-    cannot become a write.
+    author wrote. That makes a disagreement between sqlglot and SQLite about what the text
+    means the one thing this layer cannot prove, so two measures shrink it: comments are
+    refused outright (they are where two parsers most often disagree, e.g. nested block
+    comments), and the later layers exist so any remaining disagreement cannot become a write.
     """
     text = sql.strip()
     if not text:
         raise QueryRejected("empty", "The query is empty. Write one SELECT statement.")
-
+    if len(text) > MAX_SQL_CHARS:
+        raise QueryRejected(
+            "too_complex",
+            f"The query is {len(text):,} characters; the limit is {MAX_SQL_CHARS:,}. "
+            "Write a shorter query.",
+        )
     try:
+        return _validate(text, allowed_tables)
+    except RecursionError as err:
+        raise QueryRejected("too_complex", "The query is nested too deeply. Simplify it.") from err
+
+
+def _validate(text: str, allowed_tables: Iterable[str] | None) -> str:
+    try:
+        tokens = sqlglot.tokenize(text, read="sqlite")
         parsed = sqlglot.parse(text, read="sqlite")
     except SqlglotError as err:
         raise QueryRejected("parse_error", f"Could not parse the SQL: {err}") from err
+    if any(token.comments for token in tokens):
+        raise QueryRejected(
+            "comments", "SQL comments (-- and /* */) are not allowed. Remove them and resend."
+        )
 
     statements = [s for s in parsed if s is not None]
     if not statements:
@@ -114,10 +139,23 @@ def validate_select(sql: str, allowed_tables: Iterable[str] | None = None) -> st
     return text
 
 
+def _called_name(node: exp.Func) -> str | None:
+    """The SQLite function name a call node stands for, or None if it renders as an operator.
+
+    sqlglot turns functions it recognises (hex, random, ...) into typed nodes, so a check
+    that only inspects unrecognised names never sees them. Regenerating the node in the
+    SQLite dialect recovers the name SQLite will actually look up.
+    """
+    if isinstance(node, exp.Anonymous):
+        return str(node.name).lower()
+    match = _CALL.match(node.sql(dialect="sqlite"))
+    return match.group(1).lower() if match else None
+
+
 def _check_functions(root: exp.Expr) -> None:
-    for node in root.find_all(exp.Anonymous):
-        name = str(node.name).lower()
-        if name not in ALLOWED_FUNCTIONS:
+    for node in root.find_all(exp.Func):
+        name = _called_name(node)
+        if name is not None and name not in ALLOWED_FUNCTIONS and name not in _SYNTAX_CALLS:
             raise QueryRejected(
                 "forbidden_function",
                 f"Function '{name}' is not allowed. Allowed functions include "

@@ -45,6 +45,11 @@ WRITE_ATTACKS = [
     "-- select\nDELETE FROM players",
     "delete\tfrom\nplayers",
     "DeLeTe FROM players",
+    # Parser-differential shapes: SQLite ends a block comment at the FIRST '*/', so a parser
+    # that nests comments sees one harmless SELECT where SQLite sees a second statement.
+    "SELECT 1 /* /* */ ; DROP TABLE players; /* */",
+    "SELECT 1 /* /* */ ; DELETE FROM players; /* */",
+    "SELECT 1 -- x\n; DROP TABLE players",
 ]
 
 ABUSE_ATTACKS = [
@@ -55,6 +60,19 @@ ABUSE_ATTACKS = [
     "SELECT * FROM",
     "SELECT 1; SELECT 2",
     "SELECT load_extension('evil.dll')",
+    "SELECT \"load_extension\"('evil.dll')",
+    "SELECT [load_extension]('evil.dll')",
+    "SELECT `load_extension`('evil.dll')",
+    "SELECT hex(randomblob(4))",
+    "SELECT hex('a')",
+    "SELECT unhex('41')",
+    "SELECT random()",
+    "SELECT quote('a')",
+    "SELECT sqlite_version()",
+    "SELECT json_extract('{}', '$')",
+    "SELECT 1 /* /* ; */ DROP TABLE players",
+    "SELECT * FROM players -- trailing comment",
+    "SELECT /* inline */ * FROM players",
     "SELECT readfile('C:/Windows/win.ini')",
     "SELECT writefile('pwned.txt', 'x')",
     "SELECT * FROM sqlite_master",
