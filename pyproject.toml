@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "courtside"
+version = "0.1.0"
+description = "Natural-language questions over sports databases, answered by a read-only text-to-SQL agent and measured by a frozen benchmark."
+requires-python = ">=3.12"
+dependencies = [
+    "sqlglot>=30",
+    "rapidfuzz>=3.9",
+    "pyyaml>=6",
+    "pandas>=2.2",
+    "scipy>=1.13",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# Attack and fixture SQL strings read better on one line than wrapped.
+"tests/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]

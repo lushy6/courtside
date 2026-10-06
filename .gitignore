@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.env
+# Raw API responses and per-run outputs are reproducible from cassettes; the cassettes themselves are committed.
+eval/results/*.tmp
+data/staging/

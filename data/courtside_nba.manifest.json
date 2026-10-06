@@ -1,0 +1,92 @@
+{
+  "out_file": "courtside_nba.db",
+  "out_sha256": "84566ba932469fb97a243aaf83c62e581f80595e4e5daa441100ca8ccdda0a16",
+  "out_bytes": 15200256,
+  "sources": {
+    "lineup": {
+      "file": "nba.db",
+      "sha256": "1aaeab149a161a4be0f478dd32cfe70e678fd3f4ca77a2cf89aa7a39ef49a903"
+    },
+    "tactical": {
+      "file": "nba.db",
+      "sha256": "60cf89e0fdbfb598175d7d49d485e37e10e6ac989aab09c8f48498388ca56177"
+    }
+  },
+  "tables": {
+    "games": {
+      "rows": 1230,
+      "source": "lineup"
+    },
+    "teams": {
+      "rows": 30,
+      "source": "lineup"
+    },
+    "players": {
+      "rows": 591,
+      "source": "lineup"
+    },
+    "lineup_stats": {
+      "rows": 17733,
+      "source": "lineup"
+    },
+    "lineup_bootstrap": {
+      "rows": 17701,
+      "source": "lineup"
+    },
+    "player_rapm": {
+      "rows": 582,
+      "source": "lineup"
+    },
+    "player_season": {
+      "rows": 577,
+      "source": "lineup"
+    },
+    "noise_model": {
+      "rows": 1,
+      "source": "lineup"
+    },
+    "coverage_season": {
+      "rows": 1,
+      "source": "lineup"
+    },
+    "coverage_team": {
+      "rows": 30,
+      "source": "lineup"
+    },
+    "player_game_stats": {
+      "rows": 32179,
+      "source": "tactical"
+    },
+    "contracts": {
+      "rows": 414,
+      "source": "tactical"
+    },
+    "cap_rules": {
+      "rows": 2,
+      "source": "tactical"
+    },
+    "play_types": {
+      "rows": 11,
+      "source": "tactical"
+    },
+    "player_positions": {
+      "rows": 582,
+      "source": "tactical"
+    },
+    "player_play_type_stats": {
+      "rows": 5937,
+      "source": "tactical"
+    },
+    "team_play_type_stats": {
+      "rows": 660,
+      "source": "tactical"
+    }
+  },
+  "checks_passed": [
+    "games identical in both sources",
+    "players identical in both sources",
+    "teams identical in both sources",
+    "player_game_stats: same rows and same values on shared columns",
+    "every contract belongs to a known player"
+  ]
+}
