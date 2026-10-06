@@ -1,0 +1,20 @@
+{
+  "questions": 120,
+  "by_tier": {
+    "lookup": 20,
+    "aggregate": 25,
+    "join": 25,
+    "trap": 20,
+    "ambiguous": 10,
+    "unanswerable": 10,
+    "adversarial": 10
+  },
+  "by_split": {
+    "dev": 48,
+    "test": 72
+  },
+  "dev_sha256": "3d20575eaf236e6b8ac96ab0243203feb230dded6ed8b9be0f00b3e7b5a86a0d",
+  "test_sha256": "6cd7079e4683577c588cf0c2944601c5d133661bf387573b64b268b014f65934",
+  "source_sha256": "521758882518a0bf1ce1be9b40cfcf0bbaf9170e35755e7748a521b54c06c4c7",
+  "db_sha256": "84566ba932469fb97a243aaf83c62e581f80595e4e5daa441100ca8ccdda0a16"
+}
