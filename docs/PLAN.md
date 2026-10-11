@@ -14,8 +14,10 @@ over a database is easy to build. A measured one is what a reader will remember.
 | 2 Semantic layer + resolver | 17 tables documented and drift-tested; resolver 60/60 top-1 on a 60-name set |
 | 3 Golden set | 120 questions, 48 dev / 72 test, test split locked by hash; ties removed; 3 external cross-checks (see GOLDEN_CHECKS.md) |
 
-Phases 4-9 (LLM adapter and agent, eval harness, runs, demo) are NOT started. Every number marked
-*(estimate)* below is still a projection to check, not a result. Nothing has been measured against a model yet.
+Phase 4 has a tested local tool bridge for schema inspection, bounded value samples,
+and read-only SQL. The LLM adapters, agent configurations, cassettes, eval harness,
+runs, and demo are still open. Every number marked *(estimate)* below is still a
+projection to check; nothing has been measured against a model yet.
 
 ---
 
