@@ -1,9 +1,9 @@
-# Handoff: Courtside after phase 5 (2026-10-26)
+# Handoff: Courtside, phase 5 done, phase 6 in progress (2026-10-26)
 
 Paste this into a new Claude Code session to continue:
 
 > Continue Courtside in C:\Users\birbu\Projects\Sports\_Projects\Shared\courtside. Read docs/HANDOFF.md and
-> docs/PLAN.md first, then do the "Next" list in HANDOFF.md, starting with phase 6. Dev split only.
+> docs/PLAN.md first, then do the "Next" list in HANDOFF.md, continuing phase 6 from docs/DEV_LOG.md. Dev split only.
 
 ## Phase 5: done (595d4ee .. this commit, pushed to origin/main)
 
@@ -77,14 +77,15 @@ Dev numbers are for iterating, not for the README or resume.
 
 ## Next
 
-1. **Phase 6, iterate on dev only.** First lever, from the failure list: force `final_answer` on the last allowed
-   turn (and maybe say how many turns remain), so a model that keeps exploring still answers. Then re-run dev D
-   on flash-lite as a new run id (`--rep 2` or a descriptive `--run-id`), score, `--compare` with r1 (McNemar).
-   Log each change and its dev result. Never tune on the test split; do not edit the golden set (locked).
-2. Resume the Groq dev run when its token cap resets (Groq resets on a rolling window; try after 2026-10-27 03:00
-   UTC): `python eval/run.py --provider groq --model qwen/qwen3.8-27b --config D --split dev --retry-errors
-   --allow-code-change`, then `python eval/score.py dev-D-groq-qwen3.8-27b-r1 --refresh --verify-replay`.
-   (`--allow-code-change`: agent.py now records `context_numbers`; requests are identical.)
+1. **Phase 6, iterate on dev only: IN PROGRESS, see docs/DEV_LOG.md.** Done: change 1 (force final_answer on
+   the last turn, 39 -> 43/48, controlled run) and change 2 (contracts rule for league-wide aggregates, A24 fixed;
+   fresh run 42/48, McNemar vs change 1 p = 1.0). Candidates for change 3 are listed at the end of DEV_LOG.
+   Measure agent-only changes with `--base-cassette <previous run>`; prompt changes need a fresh run. Never tune on
+   the test split; do not edit the golden set (locked).
+2. Groq qwen: `dev-D-groq-qwen3.8-27b-r1` can NOT be resumed any more (the semantic layer and agent changed, so
+   the runner refuses; that is correct). When its 200k tokens/day cap allows, start a fresh dev run on the
+   current prompt instead: `python eval/run.py --provider groq --model qwen/qwen3.8-27b --config D --split dev
+   --run-id dev-D-qwen-p6` (~2 days of cap for 48 questions; it pauses and resumes on its own).
 3. Dev runs of configs A, B, C on flash-lite to see the ablation shape before freezing (still dev only).
 4. Phase 7: freeze prompt + scorer (record SHAs), then `--split test --frozen-test`, 4 configs x 3 reps on
    flash-lite, best config x 3 on qwen; RESULTS.md with Wilson CIs, McNemar, failure taxonomy.
