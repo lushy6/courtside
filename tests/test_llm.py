@@ -231,6 +231,25 @@ def test_cassette_does_not_store_failed_calls(tmp_path: Path) -> None:
     assert not path.exists() or path.read_text(encoding="utf-8") == ""
 
 
+def test_cassette_records_a_deterministic_400_so_the_conversation_replays(tmp_path: Path) -> None:
+    # Groq's tool_use_failed 400 makes the agent nudge and continue, so the path depends on it.
+    path = tmp_path / "run.jsonl"
+    error = ProviderError("HTTP 400: tool_use_failed", 400)
+    messages = [Message("user", "x")]
+    recorded = GroqModel(transport=Cassette(path, "record", inner=Scripted(error)), key="k")
+    assert recorded.complete(messages, []).tool_calls == ()  # an empty turn, as live
+    replay = Cassette(path, "replay", inner=Scripted())
+    replayed = GroqModel(transport=replay, key="k").complete(messages, [])
+    assert replayed.tool_calls == () and replay.hits == 1
+    with pytest.raises(ProviderError) as raised:
+        replay.post(
+            recorded.url,
+            {},
+            recorded.request_body(messages, [], require_tool=False, max_output_tokens=2048),
+        )
+    assert raised.value.status == 400 and "tool_use_failed" in str(raised.value)
+
+
 # --- retry ----------------------------------------------------------------------------------------
 
 

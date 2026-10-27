@@ -42,7 +42,9 @@ def test_tool_runtime_runs_bounded_select_and_reports_rejected_write(db_path):
 def test_tool_runtime_rejects_unknown_identifiers_and_bad_arguments(db_path):
     runtime = _runtime(db_path)
     assert runtime.call("sample_values", {"table": "players", "column": "family_name"})["rows"] == [
-        ["Brown"], ["Jokic"], ["Tatum"]
+        ["Brown"],
+        ["Jokic"],
+        ["Tatum"],
     ]
     for arguments in (
         {"table": "players", "column": "missing"},

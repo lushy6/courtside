@@ -1,7 +1,8 @@
 """Record and replay provider calls, so a run can be re-scored offline and resumed for free.
 
 Sampling cannot be fixed on these APIs, so reproducibility comes from keeping every response.
-A cassette is a JSONL file of ``{"key", "url", "request", "response"}`` lines. The key is the
+A cassette is a JSONL file of ``{"key", "url", "request", "response"}`` lines (or ``"error"``
+instead of ``"response"``, see below). The key is the
 SHA-256 of the URL and the request body; headers (which carry the API key) are never part of
 the key and never written.
 
@@ -10,6 +11,11 @@ Modes:
 - ``record``: calls already in the cassette are replayed, new ones go to the network and are
   appended. An interrupted run therefore resumes without repeating any call.
 - ``live``: pass-through, nothing stored.
+
+Errors are not stored, so a resumed run retries them, with one exception: a deterministic client
+error (HTTP 400 / 422, e.g. Groq's ``tool_use_failed``) changes the conversation's path (the agent
+nudges the model and continues), so it is recorded and raised again on replay. Without it a run
+that met one could not be replayed.
 
 Because each agent turn's request contains the previous responses, replaying turn 1 yields the
 same turn-2 request, and a whole multi-turn conversation replays from one file.
@@ -23,9 +29,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-from courtside.llm import HttpTransport, Transport
+from courtside.llm import HttpTransport, ProviderError, Transport
 
 Mode = Literal["replay", "record", "live"]
+RECORDED_ERRORS = frozenset({400, 422})
 
 
 class CassetteMiss(KeyError):
@@ -51,7 +58,7 @@ class Cassette:
             for line in self.path.read_text(encoding="utf-8").splitlines():
                 if line.strip():
                     entry = json.loads(line)
-                    self._entries[entry["key"]] = entry["response"]
+                    self._entries[entry["key"]] = entry
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -62,14 +69,28 @@ class Cassette:
         key = request_key(url, body)
         if key in self._entries:
             self.hits += 1
-            return self._entries[key]
+            entry = self._entries[key]
+            if "error" in entry:
+                raise ProviderError(entry["error"]["message"], status=entry["error"]["status"])
+            response: dict[str, Any] = entry["response"]
+            return response
         if self.mode == "replay":
             raise CassetteMiss(f"request not in cassette {self.path.name} (key {key[:12]})")
-        response = self.inner.post(url, headers, body)  # errors propagate and are not stored
+        try:
+            response = self.inner.post(url, headers, body)
+        except ProviderError as error:
+            if error.status not in RECORDED_ERRORS:
+                raise  # transient or account errors are retried on resume, not frozen
+            self.misses += 1
+            self._store(key, url, body, {"error": {"status": error.status, "message": str(error)}})
+            raise
         self.misses += 1
-        self._entries[key] = response
+        self._store(key, url, body, {"response": response})
+        return response
+
+    def _store(self, key: str, url: str, body: dict[str, Any], outcome: dict[str, Any]) -> None:
+        line = {"key": key, "url": url, "request": body, **outcome}
+        self._entries[key] = line
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8", newline="\n") as f:  # same bytes on every OS
-            line = {"key": key, "url": url, "request": body, "response": response}
             f.write(json.dumps(line, sort_keys=True) + "\n")
-        return response
