@@ -39,7 +39,14 @@ from courtside.agent import CONFIGS, Agent
 from courtside.cassette import Cassette, CassetteMiss
 from courtside.db import open_readonly
 from courtside.golden import GOLDEN_DIR, read_frozen
-from courtside.llm import ChatModel, HttpTransport, RetryingTransport, Transport, make_model
+from courtside.llm import (
+    ChatModel,
+    HttpTransport,
+    RateLimited,
+    RetryingTransport,
+    Transport,
+    make_model,
+)
 from courtside.semantic import SemanticLayer
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,6 +56,7 @@ RESULTS = ROOT / "eval" / "results"
 CASSETTES = ROOT / "eval" / "cassettes"
 USAGE = RESULTS / "_usage"
 EXIT_PAUSED = 3
+PER_DAY = re.compile(r"per day|PerDay|\(TPD\)|\(RPD\)", re.IGNORECASE)
 
 # Fields that define a run; a resume with any of them changed would mix two experiments.
 FIXED = (
@@ -112,7 +120,14 @@ class QuotaTransport:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"requests": used + 1}), encoding="utf-8")  # count before
         self.requests += 1
-        return self.inner.post(url, headers, body)
+        try:
+            return self.inner.post(url, headers, body)
+        except RateLimited as error:
+            # The provider's own daily cap (Groq: tokens per day; Gemini: requests per day).
+            # Waiting minutes per question would only turn the rest of the run into errors.
+            if PER_DAY.search(str(error)):
+                raise DailyLimitReached(f"{self.provider}: {str(error)[:200]}") from error
+            raise
 
 
 # --- hashes and manifest -------------------------------------------------------------------------
@@ -159,12 +174,23 @@ def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def open_manifest(path: Path, fixed: dict[str, Any]) -> dict[str, Any]:
+def open_manifest(
+    path: Path, fixed: dict[str, Any], *, allow_code_change: bool = False
+) -> dict[str, Any]:
+    """Create the manifest, or reopen it for a resume if nothing that defines the run changed.
+
+    ``allow_code_change`` lets a resume continue when only ``code_sha256`` differs (for a
+    change that does not alter requests, e.g. recording a new result field). The new hash is
+    logged on the session, so the manifest still says exactly which code produced what.
+    """
     sha, dirty = git_state()
-    session = {"started_at": now(), "git_sha": sha, "git_dirty": dirty}
+    session: dict[str, Any] = {"started_at": now(), "git_sha": sha, "git_dirty": dirty}
     if path.exists():
         manifest: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
         changed = [k for k in FIXED if manifest.get(k) != fixed.get(k)]
+        if allow_code_change and changed == ["code_sha256"]:
+            session["code_sha256"] = fixed["code_sha256"]
+            changed = []
         if changed:
             raise SystemExit(
                 f"{path.parent.name}: cannot resume, {', '.join(changed)} changed since the run "
@@ -273,6 +299,11 @@ def run_main(argv: list[str] | None = None) -> int:
     p.add_argument("--max-turns", type=int, default=8)
     p.add_argument("--max-output-tokens", type=int, default=2048)
     p.add_argument("--retry-errors", action="store_true", help="re-ask provider_error questions")
+    p.add_argument(
+        "--allow-code-change",
+        action="store_true",
+        help="resume although code_sha256 changed (only for changes that keep requests identical)",
+    )
     args = p.parse_args(argv)
     if args.split == "test" and not args.frozen_test:
         p.error("the test split is frozen until phase 7; pass --frozen-test only then")
@@ -311,7 +342,7 @@ def run_main(argv: list[str] | None = None) -> int:
         "max_turns": args.max_turns,
         "max_output_tokens": args.max_output_tokens,
     }
-    manifest = open_manifest(out / "manifest.json", fixed)
+    manifest = open_manifest(out / "manifest.json", fixed, allow_code_change=args.allow_code_change)
     write_json(out / "manifest.json", manifest)
     print(f"run {run_id}: {len(questions)} questions, {quota.used_today()} requests used today")
     try:

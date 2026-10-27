@@ -149,6 +149,14 @@ def test_resume_refuses_a_changed_setup(tmp_path: Path) -> None:
     assert len(runner.open_manifest(path, fixed)["sessions"]) == 2
     with pytest.raises(SystemExit, match="prompt_sha256"):
         runner.open_manifest(path, {**fixed, "prompt_sha256": 2})
+    with pytest.raises(SystemExit, match="code_sha256"):
+        runner.open_manifest(path, {**fixed, "code_sha256": 2})
+    reopened = runner.open_manifest(path, {**fixed, "code_sha256": 2}, allow_code_change=True)
+    assert reopened["sessions"][-1]["code_sha256"] == 2
+    with pytest.raises(SystemExit, match="prompt_sha256"):  # the flag covers code only
+        runner.open_manifest(
+            path, {**fixed, "code_sha256": 2, "prompt_sha256": 2}, allow_code_change=True
+        )
 
 
 def test_test_split_needs_the_phase_7_flag() -> None:
@@ -160,3 +168,33 @@ def test_default_run_id() -> None:
     assert runner.default_run_id("dev", "D", "groq", "qwen/qwen3.8-27b", 2) == (
         "dev-D-groq-qwen3.8-27b-r2"
     )
+
+
+def test_a_provider_daily_cap_pauses_instead_of_recording_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from courtside.llm import RateLimited
+
+    class Capped(FakeGroq):
+        def post(
+            self, url: str, headers: Mapping[str, str], body: dict[str, Any]
+        ) -> dict[str, Any]:
+            raise RateLimited(
+                "Rate limit reached for model on tokens per day (TPD): Limit 200000", 700.0
+            )
+
+    monkeypatch.setattr(runner, "RESULTS", tmp_path / "results")
+    quota = QuotaTransport(Capped(), "groq", daily_limit=100, usage_dir=tmp_path / "usage")
+    cassette = Cassette(
+        tmp_path / "c.jsonl", "record", RetryingTransport(quota, sleep=lambda s: None)
+    )
+    agent = runner.build_agent(
+        GroqModel(model="fake", transport=cassette, key="k"),
+        "C",
+        max_turns=8,
+        max_output_tokens=256,
+    )
+    results = tmp_path / "results" / "run" / "results.jsonl"
+    status = runner.run_questions(agent, [DEV["L06"]], results, log=lambda _: None)
+    assert status == "paused_daily_limit" and runner.read_results(results) == []
+    assert quota.requests == 1  # no retry loop against a daily cap
