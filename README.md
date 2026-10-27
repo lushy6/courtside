@@ -2,7 +2,7 @@
 
 A Python toolkit for safely exploring an offline NBA SQLite database. It combines SQL validation, database-level read-only enforcement, a documented semantic layer, entity resolution, and a frozen question set for future text-to-SQL evaluation.
 
-**Current release:** the database, safety layers, semantic definitions, entity resolver, golden questions, and local tool runtime are implemented. **An LLM adapter, natural-language chat interface, model evaluation results, and hosted demo are not implemented.** This project demonstrates database safety and evaluation infrastructure; it does not claim measured text-to-SQL model accuracy.
+**Current release:** the database, safety layers, semantic definitions, entity resolver, golden questions, and local tool runtime are implemented, along with a provider-agnostic LLM adapter (Groq, Gemini), the agent with the four pre-registered configurations, record/replay cassettes, and the evaluation harness (`eval/run.py`, `eval/score.py`). **Frozen test-set results and a hosted demo do not exist yet.** Development-split runs are in progress; this README will not quote model accuracy until the frozen test runs are done.
 
 ## Architecture
 
