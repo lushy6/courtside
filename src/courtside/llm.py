@@ -15,6 +15,7 @@ written against the official SDK then; nothing here depends on it.
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import re
@@ -30,7 +31,9 @@ Role = Literal["system", "user", "assistant", "tool"]
 StopReason = Literal["end", "tool_use", "max_tokens", "refusal", "other"]
 
 ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
-TRANSIENT_STATUS = frozenset({408, 500, 502, 503, 504})  # 408 = our own read timeout
+NO_RESPONSE = 599  # no HTTP status at all: the connection failed or was dropped
+# 408 = our own read timeout
+TRANSIENT_STATUS = frozenset({408, 500, 502, 503, 504, NO_RESPONSE})
 
 
 class ProviderError(RuntimeError):
@@ -126,7 +129,10 @@ class HttpTransport:
                 ) from error
             raise ProviderError(f"HTTP {error.code}: {detail[:500]}", status=error.code) from error
         except urllib.error.URLError as error:
-            raise ProviderError(f"network error: {error.reason}") from error
+            raise ProviderError(f"network error: {error.reason}", status=NO_RESPONSE) from error
+        except (http.client.HTTPException, ConnectionError) as error:
+            # A connection the server closed mid-request (RemoteDisconnected) is not a URLError.
+            raise ProviderError(f"connection dropped: {error!r}", status=NO_RESPONSE) from error
         except TimeoutError as error:  # a slow body read raises this directly, not URLError
             raise ProviderError(f"no response within {self.timeout_s:.0f} s", status=408) from error
 
@@ -134,7 +140,7 @@ class HttpTransport:
 class RetryingTransport:
     """Waits out HTTP 429s and retries, so free-tier per-minute caps slow a run instead of failing.
 
-    Also retries 500/502/503/504 ("model overloaded") with backoff.
+    Also retries 500/502/503/504 ("model overloaded") and dropped connections with backoff.
     Uses the provider's hint when there is one (a Retry-After header, Groq's "try again in 15.7s",
     Gemini's "retryDelay": "15s"), otherwise exponential backoff. Gives up after ``max_retries``
     or when a single wait would exceed ``max_wait_s``. The delay alone does not identify

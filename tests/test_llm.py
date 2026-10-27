@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import http.client
 import json
+import urllib.error
+import urllib.request
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -11,8 +14,10 @@ import pytest
 
 from courtside.cassette import Cassette, CassetteMiss, request_key
 from courtside.llm import (
+    TRANSIENT_STATUS,
     GeminiModel,
     GroqModel,
+    HttpTransport,
     Message,
     ProviderError,
     RateLimited,
@@ -270,6 +275,32 @@ def test_retry_gives_up_on_long_waits_and_on_non_transient_errors() -> None:
     bad_request = RetryingTransport(Scripted(ProviderError("HTTP 400", 400)), sleep=lambda _: None)
     with pytest.raises(ProviderError):
         bad_request.post("u", {}, {})
+
+
+@pytest.mark.parametrize(
+    "drop",
+    [
+        http.client.RemoteDisconnected("Remote end closed connection without response"),
+        ConnectionResetError(10054, "An existing connection was forcibly closed"),
+        urllib.error.URLError("getaddrinfo failed"),
+    ],
+)
+def test_a_dropped_connection_is_retried_not_a_crash(
+    monkeypatch: pytest.MonkeyPatch, drop: Exception
+) -> None:
+    # p6c3-rep2 died on http.client.RemoteDisconnected, which is not a URLError.
+    def urlopen(*_: Any, **__: Any) -> Any:
+        raise drop
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    with pytest.raises(ProviderError) as caught:
+        HttpTransport().post("https://example.invalid", {}, {})
+    assert caught.value.status in TRANSIENT_STATUS
+
+    waits: list[float] = []
+    transport = RetryingTransport(Scripted(caught.value, {"ok": True}), sleep=waits.append)
+    assert transport.post("u", {}, {}) == {"ok": True}
+    assert waits == [5.0]
 
 
 def test_retry_hint_parsing() -> None:
