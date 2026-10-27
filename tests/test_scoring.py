@@ -8,7 +8,15 @@ import pytest
 
 from courtside import faithfulness, stats
 from courtside.golden import read_frozen
-from courtside.scoring import Score, mentions, rows_match, same_value, score_one, score_run
+from courtside.scoring import (
+    Score,
+    canonical_rows,
+    mentions,
+    rows_match,
+    same_value,
+    score_one,
+    score_run,
+)
 
 DEV = {q["id"]: q for q in read_frozen("dev")}
 
@@ -94,6 +102,29 @@ def test_trap_accepts_a_ranked_list_whose_top_rows_are_right() -> None:
     top = q["accepted"][0]["rows"][0]
     rows = [top, ["other", "Someone", 500.0, 1.0, 1.0]]
     assert score_one(q, answer(rows, "Using shrunk ratings")).correct
+
+
+def test_trap_accepts_the_bare_lineup_id_for_its_lineup_uid() -> None:
+    # p6c3 T02: the accepted lineup, identified by `lineup` (no season|team prefix) and full names.
+    q = DEV["T02"]
+    ids = "1627759-1628401-1629674-1630202-1630573"
+    names = "Jaylen Brown, Derrick White, Neemias Queta, Payton Pritchard, Sam Hauser"
+    row = [ids, 18.604651162790717, 7.236320739840119, 387.0, names]
+    assert score_one(q, answer([row], "Ranked by shrunk net rating")).correct
+    # A different lineup, or the right players minus one, is still wrong.
+    other = "1627759-1628369-1628401-1629674-1630573"
+    assert not score_one(q, answer([[other, *row[1:]]], "Ranked by shrunk")).correct
+    assert not score_one(q, answer([[ids.rsplit("-", 1)[0], *row[1:]]], "Ranked by shrunk")).correct
+
+
+def test_lineup_uid_folds_to_its_bare_id_and_nothing_else() -> None:
+    uid = "2025-26|1610612738|1627759-1628401-1629674-1630202-1630573"
+    gold = canonical_rows([[uid]], {})
+    assert rows_match(canonical_rows([[uid.split("|")[2]]], {}), gold, ordered=False)
+    near = "1627759-1628401-1629674-1630202-1630574"
+    assert not rows_match(canonical_rows([[near]], {}), gold, ordered=False)
+    # Only a whole uid is rewritten; text that merely contains one stays as it is.
+    assert canonical_rows([[f"lineup {uid}"]], {}) == [[f"lineup {uid}"]]
 
 
 def test_rows_wrong_value_and_refusal_and_errors() -> None:

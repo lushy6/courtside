@@ -180,7 +180,7 @@
     }
   },
   "run_id": "dev-D-flash-lite-p6c1",
-  "scorer_sha256": "91d8f64204dbd2006f12c93ac5c5421c52ca59ff54a5640ff54c022ab78201f5",
+  "scorer_sha256": "e3311d3669fcf5b474d7919e9f0dcd33e439fda69c1be961a9a3cd45985a5c9c",
   "scores": [
     {
       "correct": true,

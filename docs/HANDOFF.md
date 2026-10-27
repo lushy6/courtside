@@ -40,6 +40,8 @@ each rule is narrow and tested both ways. These are the only scorer changes afte
 - faithfulness grounds numbers in everything the model was shown (prompt, question, every tool result,
   recorded by the agent as `context_numbers`), not only the final rows. Arithmetic the model did itself
   (a difference "$12.5M") is still flagged: known, accepted strictness.
+- a `lineup_uid` and its bare `lineup` id (the five player ids) are one lineup (p6c3 T02; rescored all dev
+  runs, only p6c3 moved, 44 -> 45). Approved by the user 2026-10-27.
 - Known strictness kept: `must_mention` terms are locked with the golden set; M07 named its metric
   ("points per 100 possessions") in words not on the list and fails.
 
@@ -80,11 +82,9 @@ Dev numbers are for iterating, not for the README or resume.
 1. **Phase 6, iterate on dev only: IN PROGRESS, see docs/DEV_LOG.md.** Done: change 1 (force final_answer on
    the last turn, 39 -> 43/48, controlled run) and change 2 (contracts rule for league-wide aggregates, A24 fixed;
    fresh run 42/48, McNemar vs change 1 p = 1.0) and change 3 (the `refused` definition, run
-   `dev-D-flash-lite-p6c3`: 44/48, refusal 8/8, false refusals 0/40, McNemar vs p6c2 p = 0.625; kept).
-   **Open decision (user):** T02 in p6c3 is a scorer false negative (the right lineup, identified by a bare
-   `lineup` id and full names instead of `lineup_uid` / surnames). Proposed narrow scorer rule in DEV_LOG
-   change 3; if accepted, add it to the scorer list above and rescore all dev runs. Then: noise-floor double
-   run of the final dev config (see DEV_LOG candidates), then stop iterating.
+   `dev-D-flash-lite-p6c3`: 45/48, refusal 8/8, false refusals 0/40, McNemar vs p6c2 p = 0.25; kept; T02
+   needed the lineup-id scorer rule above). Next: the noise-floor double run of the final dev config (see
+   DEV_LOG candidates), then stop iterating.
    flash-lite's real free cap is **500 requests/day**, reset at midnight Pacific (the usage counter now
    follows each provider's quota day).
    Measure agent-only changes with `--base-cassette <previous run>`; prompt changes need a fresh run. Never tune on

@@ -63,19 +63,21 @@ real: flash-lite's free tier is 500 requests/day. The 23 remaining questions ran
 Pacific-midnight reset, with `--allow-code-change` (transport only: request bodies, prompt and semantic hashes
 unchanged). `--verify-replay`: metrics and every question identical.
 
-**42 -> 44/48** [80, 97]; refusal **8/8** (was 7/8), false refusals **0/40**, faithfulness 38/40, 0 leaks.
-McNemar vs p6c2: 1 vs 3 discordant, exact p = 0.625, i.e. not significant. Per question, hand-checked:
+**42 -> 45/48** [83, 98] (44/48 before the scorer rule below); refusal **8/8** (was 7/8), false refusals
+**0/40**, trap 8/8, faithfulness 38/40, 0 leaks. McNemar vs p6c2: 0 vs 3 discordant, exact p = 0.25, not
+significant. (Vs the r1 baseline: 0 vs 6, p = 0.031, but that spans three changes plus fresh sampling, so it
+is dev evidence for the direction, not a result.) Per question, hand-checked:
 
 - U06 fixed (its target): "Tyrese Haliburton is not found in the player directory", `refused` true.
 - T04 now right and M04 now right (500-FGA minimum, matching the gold): fresh sampling, not the change.
-- T02 newly "wrong", and **this is a scorer false negative, not a model error**. The model ranked by `shrunk`
-  and returned exactly the accepted lineup (Brown, White, Queta, Pritchard, Hauser; shrunk 7.236, 387 poss),
-  and the answer also gives the other accepted reading. But its identifying columns are the bare `lineup`
-  (player ids without the `2025-26|1610612738|` prefix of `lineup_uid`) and a GROUP_CONCAT of full names
-  ("Jaylen Brown, ..."), while the gold has `lineup_uid` and surnames only. Neither matches under the current
-  representation rules. **Decision left for the user** (a scorer change after seeing output): accept a
-  `lineup` id equal to the suffix of the gold `lineup_uid`. That is narrow, testable both ways, and
-  representation rather than correctness. If accepted, rescore r1 .. p6c3 and note it in HANDOFF's scorer list.
+- T02 first scored "wrong": **a scorer false negative, not a model error**. The model ranked by `shrunk` and
+  returned exactly the accepted lineup (Brown, White, Queta, Pritchard, Hauser; shrunk 7.236, 387 poss), and
+  the answer also gives the other accepted reading. But its identifying columns were the bare `lineup` (player
+  ids without the `2025-26|1610612738|` prefix of `lineup_uid`) and a GROUP_CONCAT of full names, while the
+  gold has `lineup_uid` and surnames. **Scorer rule added (user approved 2026-10-27):** a `lineup_uid` folds
+  to its bare lineup id on both sides (the bare id is unique in the DB: 17,733 rows, 17,733 distinct). Tested
+  both ways (a different or four-player lineup still fails; only a whole uid is rewritten). Rescored every dev
+  run: only p6c3 changes (T02, 44 -> 45); r1, p6c1, p6c2 and the qwen / flash runs keep their counts.
 - Still wrong: J25 (sums raw contract rows; the answer text even states the correct de-duplicated total),
   M07 (metric named in words not on the locked list), M08 (100-3PA minimum vs the gold's reading).
 

@@ -10,8 +10,8 @@ Each question gets one ``correct`` bit, which is what accuracy, Wilson intervals
 
 Representation is not correctness (all found on the dev split, before any test run): strings
 are compared case- and accent-folded, team abbreviations, names and cities are one entity,
-adjacent text columns also count joined ("Cason" + "Wallace"), and a percent answers a gold
-fraction (55.4 for 0.554).
+adjacent text columns also count joined ("Cason" + "Wallace"), a percent answers a gold
+fraction (55.4 for 0.554), and a bare ``lineup`` id answers its ``lineup_uid``.
 ``trap``         the leading rows of the result match one ``accepted`` answer on an identifying
                  column (the first column, or any text column such as a name or lineup id), the
                  answer mentions at least one ``must_mention`` term, and it does not refuse. A
@@ -221,10 +221,20 @@ def entity_aliases(con: sqlite3.Connection) -> dict[str, str]:
     return {alias: next(iter(abbrs)) for alias, abbrs in counts.items() if len(abbrs) == 1}
 
 
+# "2025-26|1610612738|1627759-...-1630573" (lineup_uid) -> its player ids, the `lineup` column.
+LINEUP_UID = re.compile(r"\d{4}-\d{2}\|\d+\|(\d+(?:-\d+){4})")
+
+
+def _canonical(v: str, aliases: Mapping[str, str]) -> str:
+    folded = fold(v)
+    uid = LINEUP_UID.fullmatch(folded)
+    return uid.group(1) if uid else aliases.get(folded, folded)
+
+
 def canonical_rows(rows: Sequence[Sequence[Any]], aliases: Mapping[str, str]) -> list[list[Any]]:
-    return [
-        [aliases.get(fold(v), fold(v)) if isinstance(v, str) else v for v in row] for row in rows
-    ]
+    """Fold strings to one spelling: team aliases, and a lineup_uid to its bare lineup id (the
+    five player ids, unique in the database on their own; the prefix is season and team)."""
+    return [[_canonical(v, aliases) if isinstance(v, str) else v for v in row] for row in rows]
 
 
 def counted(rows: Sequence[Sequence[Any]], gold_rows: Sequence[Sequence[Any]], text: str) -> bool:

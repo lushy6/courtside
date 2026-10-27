@@ -6,12 +6,12 @@
  "git_sha": "bd145e279f06e827ed05ad45bade3c1c81393664",
  "recorded_at": "2026-10-27T04:38:27+00:00",
  "overall": {
-  "k": 44,
+  "k": 45,
   "n": 48,
-  "rate": 0.916667,
+  "rate": 0.9375,
   "ci95": [
-   0.804467,
-   0.967116
+   0.831646,
+   0.978517
   ]
  },
  "questions": [
@@ -4213,8 +4213,8 @@
     ]
    ],
    "row_count": 1,
-   "correct": false,
-   "label": "wrong_result",
+   "correct": true,
+   "label": "ok",
    "faithful": true,
    "unsupported_numbers": [],
    "expected": [
