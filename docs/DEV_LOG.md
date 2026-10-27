@@ -50,14 +50,25 @@ Run `dev-D-flash-lite-p6c2`, fresh (the prompt changed; 248 requests). **43 -> 4
 
 **Kept**: it fixes its target mechanically; the other flips are sampling noise on unrelated questions.
 
+## Change 3: define `refused` as any cannot-answer reply (bd145e2), RUN INCOMPLETE
+
+Target U06 (correct decline in the text, `refused` left false). The `refused` field description in the
+final_answer tool now says: true if the data cannot or must not answer (another season, a prediction, an
+entity or statistic not in the data, a write), and must be true whenever answer_text says the answer is not
+available. A prompt change, so a fresh run: `dev-D-flash-lite-p6c3`.
+
+**Status: 25/48 asked, paused.** The first pause was false (a per-minute 429 whose details also list per-day
+quotas; fixed in 12c1080, which now also needs a retry hint over 5 minutes). The second is real: flash-lite's
+free tier is 500 requests/day, not the ~1000 assumed. Resume after the quota resets (midnight Pacific) with
+the same command; the 25 finished questions replay from the cassette for free. **No result yet**: do not
+quote the McNemar printed on the partial run (p = 1.5e-05 was the unasked questions scoring as wrong;
+`--compare` now refuses partial runs). Judge it on the refusal tier and the false-refusal rate (0/40 so far).
+
 ## Candidates for the next changes (not done yet)
 
-- Declines without the flag (U06): the prompt says to refuse "with refused=true"; consider saying that a
-  question about an entity or statistic the data does not contain is a refusal, so the flag is set. Measure on
-  the refusal tier only; watch false refusals (0/40 so far).
-- Lineup ranking hybrids (T04): the rank_lineups_honestly rule offers two methods; the model mixed them. Saying
-  "choose ONE: rank all lineups by shrunk, or filter poss >= 100 and rank by net_rating" is a wording fix, but
-  it is close to teaching the golden set's accepted readings. Only do it if it is the honest statement of the
-  rule (it is: mixing a filter with shrinkage double-penalises small samples).
+- Lineup ranking hybrids (T04): **rejected as a change.** Ranking by `shrunk` within `poss >= 100` is a
+  defensible method; it is just not one of the two locked accepted readings. Rewording the rule to push the
+  model onto exactly those readings would be teaching to the benchmark. Recorded instead as a limitation of
+  the golden set: trap questions accept two methods, and a third defensible one scores as wrong. Report it.
 - Run-to-run noise is now the dominant term (fresh runs move 1-3 questions either way). Before freezing, run
   the final dev config twice to see the spread, then stop iterating.

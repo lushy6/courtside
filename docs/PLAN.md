@@ -269,7 +269,7 @@ Estimates assume part-time work and are guesses *(estimate)*.
 | 6 | Iterate on dev only | semantic layer and prompt tweaks, on a free model | dev results logged per change; test untouched | 1-2 |
 | 7 | Frozen test runs + analysis (free model) | RESULTS.md with CIs, McNemar, failure taxonomy | 3 runs x 4 configs complete; spread over several days if daily caps bind | 1-3 |
 | 7b | Claude comparison run | one Claude run of the best config on the frozen test set | model-comparison table with cost per correct answer; spend stays under the cap (section 10) | 0.5 |
-| 8 | Demo app + deploy | Streamlit chat showing SQL, rows, caveats | public URL, spend cap, rate limit | 1 |
+| 8 | Demo app + deploy | ~~Streamlit chat~~ custom Vite/React page (app/) replaying recorded runs: each turn's SQL and rows, the answer, caveats, the scorer's verdict, 95% interval strips; built early, 2026-10-26 | public URL; a live mode (if any) needs the spend cap and rate limit | 1 |
 | 9 | Polish | README with one honest headline, architecture diagram, 60-s screen recording | a stranger can run it in 5 minutes | 0.5 |
 
 About 10-12 working days *(estimate)*. A cut-down version for a tight deadline: phases 0-5 plus a 60-question golden set and configs A and D only.

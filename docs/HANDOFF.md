@@ -79,9 +79,18 @@ Dev numbers are for iterating, not for the README or resume.
 
 1. **Phase 6, iterate on dev only: IN PROGRESS, see docs/DEV_LOG.md.** Done: change 1 (force final_answer on
    the last turn, 39 -> 43/48, controlled run) and change 2 (contracts rule for league-wide aggregates, A24 fixed;
-   fresh run 42/48, McNemar vs change 1 p = 1.0). Candidates for change 3 are listed at the end of DEV_LOG.
+   fresh run 42/48, McNemar vs change 1 p = 1.0). Change 3 (bd145e2, the `refused` definition) is committed but
+   its run `dev-D-flash-lite-p6c3` is paused at 25/48 on flash-lite's real cap of **500 requests/day**. Resume:
+   `python eval/run.py --provider gemini --model gemini-3.5-flash-lite --config D --split dev --run-id
+   dev-D-flash-lite-p6c3 --rpm 8 --daily-limit 480`, then score, `--verify-replay`, `--compare` vs p6c2, log it.
    Measure agent-only changes with `--base-cassette <previous run>`; prompt changes need a fresh run. Never tune on
-   the test split; do not edit the golden set (locked).
+   the test split; do not edit the golden set (locked). Use `--daily-limit 480` from now on (500 is the cap).
+1b. **Demo UI (app/, replaces PLAN's Streamlit app):** Vite + React + TS, replays recorded dev runs from
+   `app/public/demo.json` at $0 (no keys, no live model). `npm run dev` / `npm run build` in app/. It currently
+   shows p6c2. After p6c3 completes, re-export: `python scripts/export_demo.py dev-D-flash-lite-p6c3`. The
+   exporter refuses runs recorded with other code; to export an older run, replay it from a `git worktree` at
+   the run's `git_sha`, with `PYTHONPATH=src` and its cassette, results dir and data/courtside_nba.* copied in.
+   Deploy (static host) is phase 8; still to decide whether phase 8 also needs a live mode (spend cap etc.).
 2. Groq qwen: `dev-D-groq-qwen3.8-27b-r1` can NOT be resumed any more (the semantic layer and agent changed, so
    the runner refuses; that is correct). When its 200k tokens/day cap allows, start a fresh dev run on the
    current prompt instead: `python eval/run.py --provider groq --model qwen/qwen3.8-27b --config D --split dev
