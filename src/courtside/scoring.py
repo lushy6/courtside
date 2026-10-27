@@ -84,11 +84,17 @@ def _same_number(model: float, gold: float) -> bool:
         return True
     if isinstance(gold, int) or isinstance(model, int):
         return False
-    places = [d for d in (_decimals(model), _decimals(gold)) if d is not None]
+    d_model, d_gold = _decimals(model), _decimals(gold)
+    places = [d for d in (d_model, d_gold) if d is not None]
     if not places:
         return False
     step = 0.5 * 10.0 ** -min(places)
-    return bool(step <= 0.01 * abs(gold) and abs(model - gold) <= step + 1e-12)
+    if abs(model - gold) > step + 1e-12:
+        return False
+    # The gold's own rounding (round(x, 1) = -4.5) is the author's stated precision. Only a
+    # model rounding coarser than the gold must stay within 1% (0.1 is not 0.1449).
+    model_coarser = d_gold is None or (d_model is not None and d_model < d_gold)
+    return not model_coarser or step <= 0.01 * abs(gold)
 
 
 def same_value(model: Any, gold: Any) -> bool:
@@ -221,6 +227,16 @@ def canonical_rows(rows: Sequence[Sequence[Any]], aliases: Mapping[str, str]) ->
     ]
 
 
+def counted(rows: Sequence[Sequence[Any]], gold_rows: Sequence[Sequence[Any]], text: str) -> bool:
+    """A count answered by listing: gold [[4]], the result lists 4 rows, and the answer says 4."""
+    if len(gold_rows) != 1 or len(gold_rows[0]) != 1:
+        return False
+    n = gold_rows[0][0]
+    if not isinstance(n, int) or isinstance(n, bool) or n < 1 or len(rows) != n:
+        return False
+    return any(c.value == n and c.multiplier == 1 for c in faithfulness.claims_in(text))
+
+
 ORDER_BY = re.compile(r"\border\s+by\b", re.IGNORECASE)
 
 
@@ -325,9 +341,10 @@ def score_one(
 
     ordered = bool(gold.get("order_matters"))
     rows = with_joined_names(canonical_rows(rows, aliases), aliases)
+    answer_text = str(result.get("answer_text", ""))
     if kind == "rows":
         expected = canonical_rows(gold["expected"]["rows"], aliases)
-        match = rows_match(rows, expected, ordered=ordered)
+        match = rows_match(rows, expected, ordered=ordered) or counted(rows, expected, answer_text)
         if not match and ORDER_BY.search(str(result.get("sql", ""))):
             # "Who had the most steals?" answered with an explicitly ranked top 5: the answer is
             # the leading rows. Only for a ranked result, never for an unordered one.
@@ -337,7 +354,10 @@ def score_one(
         return make(correct=match, label="ok" if match else "wrong_result", result_match=match)
 
     accepted = [_canonical_answer(a, aliases) for a in gold.get("accepted") or []]
-    match = any(identity_match(rows, a, ordered=ordered) for a in accepted)
+    match = any(
+        identity_match(rows, a, ordered=ordered) or counted(rows, a["rows"], answer_text)
+        for a in accepted
+    )
     forbidden = not match and any(
         identity_match(rows, _canonical_answer(f, aliases), ordered=ordered)
         for f in gold.get("forbidden") or []

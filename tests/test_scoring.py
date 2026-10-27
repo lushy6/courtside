@@ -296,3 +296,32 @@ def test_split_names_ranked_lists_and_percents_are_representation() -> None:
     assert score_one(a16, answer([[682, 1230, 55.4]])).correct
     assert not score_one(a16, answer([[682, 1230, 45.4]])).correct
     assert same_value(55.4, 0.554) and not same_value(0.554, 55.4)
+
+
+def test_gold_rounding_is_the_authors_precision() -> None:
+    # T09: gold round(lo95, 1) = -4.5; the exact -4.5035 is right although 0.05 > 1% of 4.5.
+    assert same_value(-4.50348257720872, -4.5)
+    assert not same_value(-4.6, -4.5)
+    assert not same_value(0.1, 0.1449)  # the model rounding coarser still has the 1% bound
+    q = DEV["T09"]
+    row = [
+        [
+            "1627759-x",
+            387.0,
+            18.604651162790717,
+            7.236320739840119,
+            -4.50348257720872,
+            18.976124056888956,
+        ]
+    ]
+    assert score_one(q, answer(row)).correct
+
+
+def test_a_count_answered_by_listing_the_rows() -> None:
+    q = DEV["T07"]  # accepted [[4]]: lineups distinguishable from the league average
+    listed = [["a", 1.0], ["b", 2.0], ["c", 3.0], ["d", 4.5]]
+    assert score_one(q, answer(listed, "There are 4 such lineups.")).correct
+    assert not score_one(q, answer(listed, "Here they are.")).correct  # must say the count
+    assert not score_one(q, answer(listed[:3], "There are 4 such lineups.")).correct
+    assert not score_one(DEV["L06"], answer([[i] for i in range(71)], "Seventy")).correct
+    assert score_one(DEV["L06"], answer([[i] for i in range(71)], "He played 71 games.")).correct

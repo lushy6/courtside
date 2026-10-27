@@ -5,7 +5,7 @@ read-only, and answers with the SQL and its uncertainty shown. The point of the 
 the **evaluation**: a frozen test set, pre-registered ablations, confidence intervals, and a safety suite. A chatbot
 over a database is easy to build. A measured one is what a reader will remember.
 
-**Status (updated as work lands).** Phases 0-3 are DONE and committed:
+**Status (updated as work lands).** Phases 0-5 are DONE and committed:
 
 | Phase | Result |
 |---|---|
@@ -13,11 +13,13 @@ over a database is easy to build. A measured one is what a reader will remember.
 | 1 Safety layer | 3 layers, each tested alone; independent review run, 4 findings fixed, 1 not reproduced |
 | 2 Semantic layer + resolver | 17 tables documented and drift-tested; resolver 60/60 top-1 on a 60-name set |
 | 3 Golden set | 120 questions, 48 dev / 72 test, test split locked by hash; ties removed; 3 external cross-checks (see GOLDEN_CHECKS.md) |
+| 4 LLM adapter + agent | Groq + Gemini adapters, configs A-D, record/replay cassettes; end to end on both providers |
+| 5 Eval harness | resumable runner with daily-cap pausing, deterministic scorer, Wilson + exact McNemar; replay reproduces every run exactly |
 
-Phase 4 has a tested local tool bridge for schema inspection, bounded value samples,
-and read-only SQL. The LLM adapters, agent configurations, cassettes, eval harness,
-runs, and demo are still open. Every number marked *(estimate)* below is still a
-projection to check; nothing has been measured against a model yet.
+Model choice (section 13 item 3, decided 2026-10-26): the A-D ablation runs on Gemini `gemini-3.5-flash-lite`,
+the best config also on Groq `qwen/qwen3.8-27b`; the gpt-oss models failed on tool format. Free-tier caps
+(qwen 200k tokens/day, Gemini 3.5-flash 20 requests/day) set the schedule. Phase 6 (iterate on dev) is next;
+docs/HANDOFF.md has the details and the dev-split numbers, which are not results.
 
 ---
 
