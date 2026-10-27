@@ -83,6 +83,29 @@ is dev evidence for the direction, not a result.) Per question, hand-checked:
 
 **Kept**: it fixes its target with no false refusals, and the other flips are noise or the scorer.
 
+## Noise floor: `dev-D-flash-lite-p6c3-rep2` (same code, prompt and scorer as p6c3)
+
+A second fresh run of the final dev config, to see how far two identical runs drift. `--verify-replay`:
+identical. **45/48 vs 43/48**: 2 discordant questions, both p6c3-right / rep2-wrong, McNemar p = 0.5.
+Refusal 8/8 and false refusals 0/40 in both, trap 8/8 in both.
+
+- A24 (change 2's target) wrong this time: `AVG(salary) FROM contracts` over raw rows, while the answer text
+  gives the de-duplicated figure as an aside. Change 2 makes the right query likely, not certain.
+- M04 picked points per 36 this time (a reading not in the locked accepted set).
+- Same pattern in J25 in both runs: the model knows the de-duplicated total and states it, but the final SQL
+  is the raw one. Logged as a limitation, not tuned further (that would be teaching to the dev questions).
+
+**Reading the phase 6 changes against this floor:** two identical runs differ by 2 questions. Change 1 (+4,
+a controlled replay, so no sampling noise) stands. Changes 2 and 3 each moved 1-3 questions on fresh runs,
+inside the floor; they are kept because each fixes its target mechanically (A24's SQL, U06's flag), not
+because the totals prove it. The dev score of the final config is 43-45/48. **Iteration stops here**; next is
+the phase 7 freeze.
+
+Run note: this run was resumed twice. A Claude Code shell was reaped under memory pressure while its Python
+process kept running, so one resume briefly overlapped it; that one crashed on its first request
+(`RemoteDisconnected`, fixed in bf00cc2) before writing anything. Results have 48 unique ids and replay
+identically, so the overlap left no trace. The s/q figure (52 s) is inflated by it.
+
 ## Candidates for the next changes (not done yet)
 
 - Lineup ranking hybrids (T04): **rejected as a change.** Ranking by `shrunk` within `poss >= 100` is a

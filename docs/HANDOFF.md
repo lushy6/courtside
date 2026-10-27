@@ -83,8 +83,11 @@ Dev numbers are for iterating, not for the README or resume.
    the last turn, 39 -> 43/48, controlled run) and change 2 (contracts rule for league-wide aggregates, A24 fixed;
    fresh run 42/48, McNemar vs change 1 p = 1.0) and change 3 (the `refused` definition, run
    `dev-D-flash-lite-p6c3`: 45/48, refusal 8/8, false refusals 0/40, McNemar vs p6c2 p = 0.25; kept; T02
-   needed the lineup-id scorer rule above). Next: the noise-floor double run of the final dev config (see
-   DEV_LOG candidates), then stop iterating.
+   needed the lineup-id scorer rule above). Noise floor done: a second identical run
+   `dev-D-flash-lite-p6c3-rep2` scored 43/48 (2 flips vs p6c3, p = 0.5), so the final dev config is 43-45/48
+   and changes 2-3 are within noise (kept for fixing their targets mechanically). **Iteration is over; next is
+   phase 7 (item 4).** Items 2-3 (qwen dev run, A/B/C dev runs) are still worth doing first if the calendar
+   allows.
    flash-lite's real free cap is **500 requests/day**, reset at midnight Pacific (the usage counter now
    follows each provider's quota day).
    Measure agent-only changes with `--base-cassette <previous run>`; prompt changes need a fresh run. Never tune on
