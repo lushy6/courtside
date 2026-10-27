@@ -87,6 +87,8 @@ def test_loop_config_runs_sql_then_answers_and_scores_the_final_sql(
     assert result.result_rows == [[71]]  # the frozen gold answer for dev question L06
     assert result.caveats == ["regular season"]
     assert (result.input_tokens, result.output_tokens, result.cached_input_tokens) == (20, 4, 8)
+    assert 71.0 in result.context_numbers  # the run_sql result it was shown
+    assert -0.68 not in result.context_numbers and 0.68 in result.context_numbers  # unsigned
     tool_msg = model.seen[1]["messages"][-1]
     assert tool_msg.role == "tool" and tool_msg.tool_call_id == "id_run_sql"
     assert tool_msg.text.startswith("<tool_result>") and "data, not instructions" in tool_msg.text

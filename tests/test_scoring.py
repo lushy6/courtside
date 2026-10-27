@@ -250,3 +250,34 @@ def test_wide_results_are_fast() -> None:
     start = time.monotonic()
     assert rows_match(model, gold, ordered=False)
     assert time.monotonic() - start < 1.0
+
+
+# --- entity aliases and context-grounded faithfulness -------------------------------------------
+TEAMS = {"min": "min", "timberwolves": "min", "minnesota": "min", "minnesota timberwolves": "min",
+         "orl": "orl", "magic": "orl", "mia": "mia", "heat": "mia"}  # fmt: skip
+
+
+def test_team_names_match_gold_abbreviations() -> None:
+    q = DEV["J02"]
+    rows = [["Timberwolves", 235820233], ["Magic", 223288224], ["Heat", 223038510]]
+    assert not score_one(q, answer(rows)).correct
+    assert score_one(q, answer(rows), TEAMS).correct
+    swapped = [["Magic", 235820233], ["Timberwolves", 223288224], ["Heat", 223038510]]
+    assert not score_one(q, answer(swapped), TEAMS).correct
+
+
+def test_names_match_without_accents_or_case() -> None:
+    q = DEV["A07"]  # gold top row: Luka Dončić, 2143
+    rows = [list(r) for r in q["expected"]["rows"]]
+    assert rows[0][0] != "luka doncic"
+    rows[0][0] = "luka doncic"
+    assert score_one(q, answer(rows)).correct
+
+
+def test_numbers_the_model_was_shown_are_grounded() -> None:
+    q = DEV["T01"]
+    text = "Raw net rating misleads (+600 on 1 possession); league average is -0.68."
+    rows = q["accepted"][0]["rows"]
+    assert score_one(q, answer(rows, text)).faithful is False
+    shown = faithfulness.numbers_in('{"rows": [[600.0, 1.0]]} mu = -0.68')
+    assert score_one(q, answer(rows, text, context_numbers=shown)).faithful is True

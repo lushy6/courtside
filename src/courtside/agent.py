@@ -26,6 +26,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from courtside import faithfulness
 from courtside.db import run_query, table_schema
 from courtside.entities import EntityResolver, PlayerMatch
 from courtside.errors import QueryError
@@ -136,6 +137,9 @@ class AgentResult:
     output_tokens: int = 0
     cached_input_tokens: int = 0
     elapsed_s: float = 0.0
+    # Every number the model was shown (prompt, question, tool results): faithfulness grounds
+    # the answer's numbers in these. Its own turns are excluded.
+    context_numbers: list[float] = field(default_factory=list)
     error: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -304,6 +308,8 @@ class Agent:
             self._apply_final(result, final)
         elif result.outcome != "provider_error":
             result.outcome = "max_turns" if result.turns >= self.max_turns else "no_answer"
+        shown = (m.text for m in messages if m.role in ("system", "user", "tool"))
+        result.context_numbers = faithfulness.numbers_in("\n".join(shown))
         result.elapsed_s = time.monotonic() - start
         return result
 

@@ -1,14 +1,18 @@
-"""Deterministic faithfulness: every number the answer states must come from the query result.
+"""Deterministic faithfulness: every number the answer states must come from data the model saw.
 
 A number in ``answer_text`` is supported when it matches, at the precision it is written with,
-a numeric cell of the final result, the result's row count, or a literal in the question or in
-the final SQL (a threshold such as "at least 100 possessions" is grounded in the query, not
-invented). "41.5 million", "$41,500,000" and "41.5M" are read as the same value; "68.8%" also
+a numeric cell of the final result, the result's row count, a literal in the question or in the
+final SQL (a threshold such as "at least 100 possessions" is grounded in the query), or any
+number the model was shown during the conversation: the system prompt (the semantic layer
+states the league average -0.68 and the 95% interval) and every tool result (a +600 rating it
+looked up before choosing a better query). A number that appears nowhere in that context was
+made up. "41.5 million", "$41,500,000" and "41.5M" are read as the same value; "68.8%" also
 matches a stored 0.688. A mismatch is a failure even when the SQL was right.
 
 Not checked, on purpose: ISO dates and season labels ("2026-01-15", "2025-26"), which describe
-scope rather than claim results, and numbers inside hyphenated compounds ("5-man", "3-point"),
-which are adjectives. Unsupported numbers are listed so a failure can be checked by hand.
+scope rather than claim results, numbers inside hyphenated compounds ("5-man", "3-point"),
+which are adjectives, and ordinals ("3rd"). Unsupported numbers are listed so a failure can be
+checked by hand.
 """
 
 from __future__ import annotations
@@ -78,10 +82,23 @@ def _supports(claim: Claim, value: float) -> bool:
     return any(abs(c - target) <= tolerance for c in candidates)
 
 
+def numbers_in(text: str) -> list[float]:
+    """Every number in a block of text (prompt, JSON tool results), sorted and unique."""
+    found = {float(n) for n in re.findall(r"\d+(?:\.\d+)?", text)}
+    found |= {c.value * c.multiplier for c in claims_in(text)}  # "17,733", "41.5 million"
+    return sorted(found)
+
+
 def check(
-    answer_text: str, rows: Sequence[Sequence[Any]], *, question: str = "", sql: str = ""
+    answer_text: str,
+    rows: Sequence[Sequence[Any]],
+    *,
+    question: str = "",
+    sql: str = "",
+    context: Iterable[float] = (),
 ) -> Faithfulness:
     pool = _numbers(cell for row in rows for cell in row)
+    pool += context
     pool.append(float(len(rows)))
     pool += [c.value * c.multiplier for c in claims_in(question)]
     pool += [float(n) for n in re.findall(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])", sql)]

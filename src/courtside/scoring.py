@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Sequence
+import sqlite3
+import unicodedata
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from itertools import product
 from typing import Any
@@ -178,6 +180,36 @@ def identity_match(
     return any(rows_match(head, gold_rows, ordered=ordered, gold_cols=[k]) for k in keys)
 
 
+def fold(text: str) -> str:
+    """Case, accents and spacing do not change an entity: "Luka Doncic" == "Luka Dončić"."""
+    plain = unicodedata.normalize("NFKD", text)
+    return " ".join("".join(c for c in plain if not unicodedata.combining(c)).casefold().split())
+
+
+def entity_aliases(con: sqlite3.Connection) -> dict[str, str]:
+    """Folded team spellings -> folded abbreviation: "Timberwolves", "Minnesota" -> "min".
+
+    A gold result that lists teams by abbreviation is still right when the model lists them by
+    name; that is representation, not correctness. Spellings shared by two teams (the city "Los
+    Angeles") are left out.
+    """
+    counts: dict[str, set[str]] = {}
+    for abbr, city, name in con.execute("SELECT abbr, city, name FROM teams"):
+        for alias in (abbr, city, name, f"{city} {name}"):
+            counts.setdefault(fold(str(alias)), set()).add(fold(str(abbr)))
+    return {alias: next(iter(abbrs)) for alias, abbrs in counts.items() if len(abbrs) == 1}
+
+
+def canonical_rows(rows: Sequence[Sequence[Any]], aliases: Mapping[str, str]) -> list[list[Any]]:
+    return [
+        [aliases.get(fold(v), fold(v)) if isinstance(v, str) else v for v in row] for row in rows
+    ]
+
+
+def _canonical_answer(answer: dict[str, Any], aliases: Mapping[str, str]) -> dict[str, Any]:
+    return {**answer, "rows": canonical_rows(answer["rows"], aliases)}
+
+
 STEMS = {"poss": r"poss(?:ession)?s?"}  # a stem whose prefix reading would match "possible"
 
 
@@ -198,7 +230,10 @@ def mentions(text: str, terms: Sequence[str]) -> bool:
 
 
 # --- per question --------------------------------------------------------------------------------
-def score_one(gold: dict[str, Any], result: dict[str, Any]) -> Score:
+def score_one(
+    gold: dict[str, Any], result: dict[str, Any], aliases: Mapping[str, str] | None = None
+) -> Score:
+    aliases = aliases or {}
     kind = gold["kind"]
     refused = bool(result.get("refused"))
     answered = result.get("outcome") == "answered"
@@ -214,6 +249,7 @@ def score_one(gold: dict[str, Any], result: dict[str, Any]) -> Score:
             rows,
             question=gold["question"],
             sql=str(result.get("sql", "")),
+            context=result.get("context_numbers") or [],
         )
         faith = f.faithful if f.claims else None
         unsupported = f.unsupported
@@ -252,14 +288,17 @@ def score_one(gold: dict[str, Any], result: dict[str, Any]) -> Score:
         return make(correct=False, label="no_sql", result_match=False)
 
     ordered = bool(gold.get("order_matters"))
+    rows = canonical_rows(rows, aliases)
     if kind == "rows":
-        match = rows_match(rows, gold["expected"]["rows"], ordered=ordered)
+        expected = canonical_rows(gold["expected"]["rows"], aliases)
+        match = rows_match(rows, expected, ordered=ordered)
         return make(correct=match, label="ok" if match else "wrong_result", result_match=match)
 
-    accepted = list(gold.get("accepted") or [])
+    accepted = [_canonical_answer(a, aliases) for a in gold.get("accepted") or []]
     match = any(identity_match(rows, a, ordered=ordered) for a in accepted)
     forbidden = not match and any(
-        identity_match(rows, f, ordered=ordered) for f in gold.get("forbidden") or []
+        identity_match(rows, _canonical_answer(f, aliases), ordered=ordered)
+        for f in gold.get("forbidden") or []
     )
     terms = gold.get("must_mention") or []
     said = mentions(text, terms) if terms else True
@@ -277,7 +316,11 @@ def score_one(gold: dict[str, Any], result: dict[str, Any]) -> Score:
     )
 
 
-def score_run(golden: list[dict[str, Any]], results: list[dict[str, Any]]) -> list[Score]:
+def score_run(
+    golden: list[dict[str, Any]],
+    results: list[dict[str, Any]],
+    aliases: Mapping[str, str] | None = None,
+) -> list[Score]:
     """One score per golden question; a question missing from the results scores as no answer."""
     by_id = {r["id"]: r for r in results}
-    return [score_one(g, by_id.get(g["id"], {"outcome": "missing"})) for g in golden]
+    return [score_one(g, by_id.get(g["id"], {"outcome": "missing"}), aliases) for g in golden]

@@ -30,6 +30,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from datetime import UTC, datetime
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -344,9 +345,60 @@ def load_run(run_id: str) -> tuple[dict[str, Any], list[dict[str, Any]], list[di
     return manifest, golden, read_results(out / "results.jsonl")
 
 
+@cache
+def aliases() -> dict[str, str]:
+    con = open_readonly(DB)
+    try:
+        return scoring.entity_aliases(con)
+    finally:
+        con.close()
+
+
+def differing(replayed: list[dict[str, Any]], results: list[dict[str, Any]]) -> list[str]:
+    """Questions whose replay is not the recorded conversation (see REPLAY_FIELDS)."""
+    original = {r["id"]: r for r in results}
+    out = []
+    for r in replayed:
+        first = original[r["id"]]
+        # an unrecorded provider error ends the replay at an earlier turn
+        keys = ("outcome",) if first.get("outcome") == "provider_error" else REPLAY_FIELDS
+        if any(r.get(k) != first.get(k) for k in keys):
+            out.append(r["id"])
+    return out
+
+
+def refresh_results(run_id: str) -> str:
+    """Rewrite results.jsonl from a cassette replay, if the replay is the same conversation.
+
+    Lets a scorer that needs a newly recorded field (``context_numbers``) use old runs without
+    a single API call. Wall-clock time and provider errors are kept from the original.
+    """
+    results = load_run(run_id)[2]
+    replayed = replay_results(run_id)
+    bad = differing(replayed, results)
+    if bad:
+        return f"{run_id}: not refreshed, replay differs on {', '.join(bad)}"
+    merged = []
+    for first, again in zip(results, replayed, strict=True):
+        if first.get("outcome") == "provider_error":
+            merged.append(first)
+            continue
+        keep: dict[str, Any] = {
+            k: first[k] for k in ("id", "tier", "kind", "elapsed_s") if k in first
+        }
+        merged.append({**first, **again, **keep})
+    path = RESULTS / run_id / "results.jsonl"
+    path.write_text(
+        "".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in merged),
+        encoding="utf-8",
+        newline="\n",
+    )
+    return f"{run_id}: refreshed {len(merged)} results from the cassette"
+
+
 def score_report(run_id: str) -> dict[str, Any]:
     manifest, golden, results = load_run(run_id)
-    scores = scoring.score_run(golden, results)
+    scores = scoring.score_run(golden, results, aliases())
     return {
         "run_id": run_id,
         "complete": len(results) >= len(golden),
@@ -391,11 +443,18 @@ def score_main(argv: list[str] | None = None) -> int:
     p.add_argument("runs", nargs="*", help="run ids under eval/results/")
     p.add_argument("--compare", nargs=2, metavar=("RUN_A", "RUN_B"), help="exact McNemar")
     p.add_argument("--verify-replay", action="store_true", help="re-run from cassette, compare")
+    p.add_argument(
+        "--refresh",
+        action="store_true",
+        help="re-derive results from the cassette (offline) to add fields newer code records",
+    )
     args = p.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     status = 0
     for run_id in args.runs:
+        if args.refresh:
+            print(refresh_results(run_id))
         report = score_report(run_id)
         write_json(RESULTS / run_id / "score.json", report)
         m = report["metrics"]
@@ -420,21 +479,8 @@ def score_main(argv: list[str] | None = None) -> int:
         if args.verify_replay:
             golden = load_run(run_id)[1]
             replayed = replay_results(run_id)
-            original = {r["id"]: r for r in load_run(run_id)[2]}
-            differ = [
-                r["id"]
-                for r in replayed
-                if any(
-                    r.get(k) != original[r["id"]].get(k)
-                    # an unrecorded provider error ends the replay at an earlier turn
-                    for k in (
-                        ("outcome",)
-                        if original[r["id"]].get("outcome") == "provider_error"
-                        else REPLAY_FIELDS
-                    )
-                )
-            ]
-            same_metrics = stats.summarize(scoring.score_run(golden, replayed)) == m
+            differ = differing(replayed, load_run(run_id)[2])
+            same_metrics = stats.summarize(scoring.score_run(golden, replayed, aliases())) == m
             same = same_metrics and not differ
             print(
                 f"  replay from cassette: metrics identical {same_metrics}, "
@@ -442,7 +488,7 @@ def score_main(argv: list[str] | None = None) -> int:
             )
             status = status or (0 if same else 1)
     if args.compare:
-        a, b = (scoring.score_run(*load_run(r)[1:]) for r in args.compare)
+        a, b = (scoring.score_run(*load_run(r)[1:], aliases()) for r in args.compare)
         result = stats.mcnemar(a, b)
         print(
             f"\nMcNemar {args.compare[0]} vs {args.compare[1]}: n={result['n']}, "
