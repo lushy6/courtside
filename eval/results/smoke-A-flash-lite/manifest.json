@@ -1,0 +1,45 @@
+{
+  "answered": 7,
+  "base_cassette": null,
+  "code_sha256": "72bfa6b853ed5534a23dc53147062dfbb9f41b2996de7c859f83730b591f4121",
+  "config": "A",
+  "courtside": "0.1.0",
+  "created_at": "2026-10-27T16:15:40+00:00",
+  "db_sha256": "84566ba932469fb97a243aaf83c62e581f80595e4e5daa441100ca8ccdda0a16",
+  "db_sha256_after": "84566ba932469fb97a243aaf83c62e581f80595e4e5daa441100ca8ccdda0a16",
+  "git_dirty": false,
+  "git_sha": "55a24757f828ad26df60374f4b815bc8391f08e9",
+  "golden_sha256": "3d20575eaf236e6b8ac96ab0243203feb230dded6ed8b9be0f00b3e7b5a86a0d",
+  "max_output_tokens": 2048,
+  "max_turns": 8,
+  "model": "gemini-3.5-flash-lite",
+  "prompt_sha256": "e7206aef123393c7906198b173fed6dc09114804d4e5a7e9fc9dec7e9d7ce00a",
+  "provider": "gemini",
+  "python": "3.12.10",
+  "question_ids": [
+    "L01",
+    "A07",
+    "J01",
+    "T01",
+    "M02",
+    "U01",
+    "X02"
+  ],
+  "rep": 1,
+  "run_id": "smoke-A-flash-lite",
+  "semantic_sha256": "cb7b4644b97ecff3ff0c12c1a0361b126a31e24270c5350de9943826fb999715",
+  "sessions": [
+    {
+      "cassette_hits": 0,
+      "cassette_new": 7,
+      "finished_at": "2026-10-27T16:16:56+00:00",
+      "git_dirty": false,
+      "git_sha": "55a24757f828ad26df60374f4b815bc8391f08e9",
+      "http_requests": 7,
+      "started_at": "2026-10-27T16:15:40+00:00",
+      "status": "complete"
+    }
+  ],
+  "split": "dev",
+  "status": "complete"
+}
