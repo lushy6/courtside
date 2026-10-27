@@ -139,9 +139,12 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def code_sha256() -> str:
+SCORER = ("scoring.py", "faithfulness.py", "stats.py")
+
+
+def code_sha256(files: tuple[str, ...] = CODE) -> str:
     h = hashlib.sha256()
-    for name in CODE:
+    for name in files:
         h.update(name.encode() + b"/" + (Path(__file__).parent / name).read_bytes())
     return h.hexdigest()
 
@@ -435,6 +438,7 @@ def score_report(run_id: str) -> dict[str, Any]:
         "complete": len(results) >= len(golden),
         "db_unchanged": manifest.get("db_sha256_after", manifest["db_sha256"])
         == manifest["db_sha256"],
+        "scorer_sha256": code_sha256(SCORER),
         "metrics": stats.summarize(scores),
         "cost": stats.cost(results),
         "scores": [s.to_dict() for s in scores],

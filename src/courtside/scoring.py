@@ -4,7 +4,14 @@ Each question gets one ``correct`` bit, which is what accuracy, Wilson intervals
 
 ``rows``         the final SQL's result equals the gold result: same row count; every gold column
                  matches some distinct result column (extra columns allowed, column order free);
-                 row order free unless ``order_matters``.
+                 row order free unless ``order_matters``. If the final SQL has an ORDER BY
+                 (a ranked list, e.g. a top 5 for "who had the most"), its leading rows may be
+                 the answer instead.
+
+Representation is not correctness (all found on the dev split, before any test run): strings
+are compared case- and accent-folded, team abbreviations, names and cities are one entity,
+adjacent text columns also count joined ("Cason" + "Wallace"), and a percent answers a gold
+fraction (55.4 for 0.554).
 ``trap``         the leading rows of the result match one ``accepted`` answer on an identifying
                  column (the first column, or any text column such as a name or lineup id), the
                  answer mentions at least one ``must_mention`` term, and it does not refuse. A
@@ -72,21 +79,29 @@ def _decimals(v: float) -> int | None:
     return len(text.split(".")[1])
 
 
+def _same_number(model: float, gold: float) -> bool:
+    if math.isclose(model, gold, rel_tol=1e-6, abs_tol=1e-9):
+        return True
+    if isinstance(gold, int) or isinstance(model, int):
+        return False
+    places = [d for d in (_decimals(model), _decimals(gold)) if d is not None]
+    if not places:
+        return False
+    step = 0.5 * 10.0 ** -min(places)
+    return bool(step <= 0.01 * abs(gold) and abs(model - gold) <= step + 1e-12)
+
+
 def same_value(model: Any, gold: Any) -> bool:
     if model is None or gold is None:
         return model is None and gold is None
     if _is_number(gold) or _is_number(model):
         if not (_is_number(gold) and _is_number(model)):
             return False
-        if math.isclose(model, gold, rel_tol=1e-6, abs_tol=1e-9):
+        if _same_number(model, gold):
             return True
-        if isinstance(gold, int) or isinstance(model, int):
-            return False
-        places = [d for d in (_decimals(model), _decimals(gold)) if d is not None]
-        if not places:
-            return False
-        step = 0.5 * 10.0 ** -min(places)
-        return bool(step <= 0.01 * abs(gold) and abs(model - gold) <= step + 1e-12)
+        # A share as a percent: 55.4 answers a gold fraction of 0.554.
+        is_share = isinstance(gold, float) and 0 < abs(gold) <= 1
+        return is_share and abs(model) > 1 and _same_number(float(model) / 100, gold)
     return str(model).strip() == str(gold).strip()
 
 
@@ -206,6 +221,27 @@ def canonical_rows(rows: Sequence[Sequence[Any]], aliases: Mapping[str, str]) ->
     ]
 
 
+ORDER_BY = re.compile(r"\border\s+by\b", re.IGNORECASE)
+
+
+def with_joined_names(rows: list[list[Any]], aliases: Mapping[str, str]) -> list[list[Any]]:
+    """Add "first last" for every pair of adjacent text columns: a name split into first_name
+    and family_name columns is still the name. Extra columns cost nothing (they may be unused).
+    """
+    if not rows:
+        return rows
+    width = len(rows[0])
+    pairs = [
+        i
+        for i in range(width - 1)
+        if all(isinstance(r[i], str) and isinstance(r[i + 1], str) for r in rows)
+    ]
+    return [
+        [*r, *(aliases.get(fold(f"{r[i]} {r[i + 1]}"), fold(f"{r[i]} {r[i + 1]}")) for i in pairs)]
+        for r in rows
+    ]
+
+
 def _canonical_answer(answer: dict[str, Any], aliases: Mapping[str, str]) -> dict[str, Any]:
     return {**answer, "rows": canonical_rows(answer["rows"], aliases)}
 
@@ -288,10 +324,16 @@ def score_one(
         return make(correct=False, label="no_sql", result_match=False)
 
     ordered = bool(gold.get("order_matters"))
-    rows = canonical_rows(rows, aliases)
+    rows = with_joined_names(canonical_rows(rows, aliases), aliases)
     if kind == "rows":
         expected = canonical_rows(gold["expected"]["rows"], aliases)
         match = rows_match(rows, expected, ordered=ordered)
+        if not match and ORDER_BY.search(str(result.get("sql", ""))):
+            # "Who had the most steals?" answered with an explicitly ranked top 5: the answer is
+            # the leading rows. Only for a ranked result, never for an unordered one.
+            match = len(rows) > len(expected) and rows_match(
+                rows[: len(expected)], expected, ordered=ordered
+            )
         return make(correct=match, label="ok" if match else "wrong_result", result_match=match)
 
     accepted = [_canonical_answer(a, aliases) for a in gold.get("accepted") or []]

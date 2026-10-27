@@ -281,3 +281,18 @@ def test_numbers_the_model_was_shown_are_grounded() -> None:
     assert score_one(q, answer(rows, text)).faithful is False
     shown = faithfulness.numbers_in('{"rows": [[600.0, 1.0]]} mu = -0.68')
     assert score_one(q, answer(rows, text, context_numbers=shown)).faithful is True
+
+
+def test_split_names_ranked_lists_and_percents_are_representation() -> None:
+    a09 = DEV["A09"]  # gold: [["Cason Wallace", 150]]
+    split_top5 = [["Cason", "Wallace", 150], ["Dyson", "Daniels", 149], ["Ausar", "Thompson", 146]]
+    ranked = answer(split_top5, sql="SELECT ... ORDER BY total_steals DESC LIMIT 3")
+    assert score_one(a09, ranked).correct
+    unranked = answer(split_top5, sql="SELECT first_name, family_name, s FROM t")
+    assert not score_one(a09, unranked).correct  # without ORDER BY the extra rows count
+    wrong_top = [["Dyson", "Daniels", 149], ["Cason", "Wallace", 150]]
+    assert not score_one(a09, answer(wrong_top, sql="SELECT x ORDER BY y")).correct
+    a16 = DEV["A16"]  # gold: [[0.554]]
+    assert score_one(a16, answer([[682, 1230, 55.4]])).correct
+    assert not score_one(a16, answer([[682, 1230, 45.4]])).correct
+    assert same_value(55.4, 0.554) and not same_value(0.554, 55.4)
