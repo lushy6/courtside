@@ -105,8 +105,17 @@ Dev numbers are for iterating, not for the README or resume.
    current prompt instead: `python eval/run.py --provider groq --model qwen/qwen3.8-27b --config D --split dev
    --run-id dev-D-qwen-p6` (~2 days of cap for 48 questions; it pauses and resumes on its own).
 3. Dev runs of configs A, B, C on flash-lite to see the ablation shape before freezing (still dev only).
-4. Phase 7: freeze prompt + scorer (record SHAs), then `--split test --frozen-test`, 4 configs x 3 reps on
-   flash-lite, best config x 3 on qwen; RESULTS.md with Wilson CIs, McNemar, failure taxonomy.
+4. **Phase 7: FROZEN 2026-10-27 at 8817127 (`eval/FREEZE.json`), test runs IN PROGRESS.** Items 2-3 were
+   skipped by the user's call (straight to phase 7). Queue (`scripts/phase7.py`): flash-lite A, B, C, D x 3
+   reps (rep-major), qwen config D x 3 (D pre-registered before any test run). Two lanes run as detached
+   processes, logs in `eval/results/_phase7_logs/` (gitignored); restart a lane any time with
+   `python scripts/phase7.py run --lane gemini` (or `groq`); finished work is skipped. Check first that no
+   `eval/run.py` process is still running (a reaped shell can leave the Python run alive). `phase7.py check`
+   must print "freeze intact": change nothing in src/, semantic/, eval/golden/ or the DB until phase 7 is
+   done. Estimated calendar: flash-lite ~2,300 requests at 480/day, about 5 days; qwen ~20 test
+   questions/day on the token cap, about 11 days for 3 reps (stop at fewer reps if needed and say so).
+   Then: score every run, `--verify-replay`, McNemar between configs (per rep), RESULTS.md with Wilson CIs,
+   mean and range over reps, failure taxonomy (hand-labelled).
 5. Claude adapter for 7b: load the `claude-api` skill first; hard $20 cap.
 6. Optional: a lock around the usage counter if two runs ever share a provider (today they never do).
 7. Cassettes are ~5 MB per dev D run and are committed; phase 7 adds ~15 runs. Consider gzip (`.jsonl.gz`,

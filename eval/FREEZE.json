@@ -1,0 +1,47 @@
+{
+  "frozen_at": "2026-10-27T16:24:38+00:00",
+  "git_sha": "8817127e205109ebdb6bbcb3dafdace1c40c0af5",
+  "identity": {
+    "prompt_sha256": {
+      "A": "e7206aef123393c7906198b173fed6dc09114804d4e5a7e9fc9dec7e9d7ce00a",
+      "B": "876a1b2a7a999fb73e3f642f34fe940990f87127e3257a77d43c26424463ac5c",
+      "C": "3379c397c5217e8d40f1f16b70a3e79c361f5cd4886a4c3f871f0794532fbd98",
+      "D": "3379c397c5217e8d40f1f16b70a3e79c361f5cd4886a4c3f871f0794532fbd98"
+    },
+    "code_sha256": "72bfa6b853ed5534a23dc53147062dfbb9f41b2996de7c859f83730b591f4121",
+    "scorer_sha256": "e3311d3669fcf5b474d7919e9f0dcd33e439fda69c1be961a9a3cd45985a5c9c",
+    "semantic_sha256": "cb7b4644b97ecff3ff0c12c1a0361b126a31e24270c5350de9943826fb999715",
+    "db_sha256": "84566ba932469fb97a243aaf83c62e581f80595e4e5daa441100ca8ccdda0a16",
+    "test_sha256": "6cd7079e4683577c588cf0c2944601c5d133661bf387573b64b268b014f65934",
+    "dev_sha256": "3d20575eaf236e6b8ac96ab0243203feb230dded6ed8b9be0f00b3e7b5a86a0d",
+    "max_turns": 8,
+    "max_output_tokens": 2048,
+    "lanes": {
+      "gemini": {
+        "model": "gemini-3.5-flash-lite",
+        "runs": [
+          "A r1",
+          "B r1",
+          "C r1",
+          "D r1",
+          "A r2",
+          "B r2",
+          "C r2",
+          "D r2",
+          "A r3",
+          "B r3",
+          "C r3",
+          "D r3"
+        ]
+      },
+      "groq": {
+        "model": "qwen/qwen3.8-27b",
+        "runs": [
+          "D r1",
+          "D r2",
+          "D r3"
+        ]
+      }
+    }
+  }
+}
