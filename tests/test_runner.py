@@ -198,3 +198,26 @@ def test_a_provider_daily_cap_pauses_instead_of_recording_errors(
     status = runner.run_questions(agent, [DEV["L06"]], results, log=lambda _: None)
     assert status == "paused_daily_limit" and runner.read_results(results) == []
     assert quota.requests == 1  # no retry loop against a daily cap
+
+
+def test_a_per_minute_429_that_mentions_daily_quotas_is_retried_not_paused(tmp_path: Path) -> None:
+    from courtside.llm import RateLimited
+
+    class MinuteThenOk(FakeGroq):
+        calls = 0
+
+        def post(
+            self, url: str, headers: Mapping[str, str], body: dict[str, Any]
+        ) -> dict[str, Any]:
+            MinuteThenOk.calls += 1
+            if MinuteThenOk.calls == 1:
+                raise RateLimited(
+                    "quota GenerateRequestsPerDayPerProjectPerModel; per minute", 15.0
+                )
+            return super().post(url, headers, body)
+
+    quota = QuotaTransport(MinuteThenOk(), "gemini", daily_limit=100, usage_dir=tmp_path)
+    retry = RetryingTransport(quota, sleep=lambda s: None)
+    body = {"messages": [{"role": "user", "content": DEV["L06"]["question"]}]}
+    assert "choices" in retry.post("u", {}, body)  # waited 15 s and retried
+    assert quota.requests == 2

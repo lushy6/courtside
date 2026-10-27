@@ -57,6 +57,7 @@ RESULTS = ROOT / "eval" / "results"
 CASSETTES = ROOT / "eval" / "cassettes"
 USAGE = RESULTS / "_usage"
 EXIT_PAUSED = 3
+DAILY_WAIT_S = 300.0  # a retry hint longer than this is a daily cap, not a per-minute one
 PER_DAY = re.compile(r"per day|PerDay|\(TPD\)|\(RPD\)", re.IGNORECASE)
 
 # Fields that define a run; a resume with any of them changed would mix two experiments.
@@ -126,8 +127,11 @@ class QuotaTransport:
         except RateLimited as error:
             # The provider's own daily cap (Groq: tokens per day; Gemini: requests per day).
             # Waiting minutes per question would only turn the rest of the run into errors.
-            if PER_DAY.search(str(error)):
-                raise DailyLimitReached(f"{self.provider}: {str(error)[:200]}") from error
+            # A per-minute 429 can still mention per-day quotas in its details (Gemini lists
+            # them); only a long retry hint means today's budget is really gone.
+            hint = error.retry_after_s
+            if PER_DAY.search(str(error)) and (hint is None or hint > DAILY_WAIT_S):
+                raise DailyLimitReached(f"{self.provider}: {str(error)[:600]}") from error
             raise
 
 
@@ -538,6 +542,11 @@ def score_main(argv: list[str] | None = None) -> int:
             )
             status = status or (0 if same else 1)
     if args.compare:
+        partial = [r for r in args.compare if len(load_run(r)[2]) < len(load_run(r)[1])]
+        if partial:
+            # Unasked questions score as wrong, so a partial run would "lose" every one of them.
+            print(f"\nMcNemar skipped: {', '.join(partial)} is incomplete; finish it first.")
+            return status or 1
         a, b = (scoring.score_run(*load_run(r)[1:], aliases()) for r in args.compare)
         result = stats.mcnemar(a, b)
         print(
