@@ -15,7 +15,13 @@ Each question gets one ``correct`` bit, which is what accuracy, Wilson intervals
 
 Numbers match when they agree within 1e-6 relative, or, for floats, at the coarser of the two
 written precisions (gold ``round(x, 2)`` = 122.07 accepts 122.0732; an unrounded gold value
-accepts a result the model rounded to 1+ decimals). Integers must be exact.
+accepts a result the model rounded), as long as that rounding is within 1% of the gold value
+(so 0.1 does not stand in for 0.1449). A whole-valued gold float such as 3.0 carries no
+precision of its own. Integers must be exact.
+
+``must_mention`` terms of up to four letters match whole words only ("ts", "ppg", "made"; a
+plural "s" is allowed), longer ones match the start of a word ("reliab" -> "reliable"). "poss"
+is the one written stem: it matches "poss" and "possession(s)", never "possible".
 """
 
 from __future__ import annotations
@@ -24,7 +30,7 @@ import math
 import re
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
-from itertools import permutations
+from itertools import product
 from typing import Any
 
 from courtside import faithfulness
@@ -59,9 +65,9 @@ def _is_number(v: Any) -> bool:
 
 def _decimals(v: float) -> int | None:
     text = repr(float(v))
-    if "e" in text or "inf" in text or "nan" in text:
-        return None
-    return len(text.split(".")[1]) if "." in text else 0
+    if "e" in text or "inf" in text or "nan" in text or float(v).is_integer():
+        return None  # 3.0 says nothing about precision
+    return len(text.split(".")[1])
 
 
 def same_value(model: Any, gold: Any) -> bool:
@@ -75,8 +81,10 @@ def same_value(model: Any, gold: Any) -> bool:
         if isinstance(gold, int) or isinstance(model, int):
             return False
         places = [d for d in (_decimals(model), _decimals(gold)) if d is not None]
-        coarser = min(places) if len(places) == 2 else None
-        return coarser is not None and coarser >= 1 and abs(model - gold) <= 0.5 * 10**-coarser
+        if not places:
+            return False
+        step = 0.5 * 10.0 ** -min(places)
+        return bool(step <= 0.01 * abs(gold) and abs(model - gold) <= step + 1e-12)
     return str(model).strip() == str(gold).strip()
 
 
@@ -87,15 +95,37 @@ def _sort_key(row: Sequence[Any]) -> tuple[tuple[int, Any], ...]:
     )
 
 
+def _row_equal(m: Sequence[Any], g: Sequence[Any]) -> bool:
+    return all(same_value(a, b) for a, b in zip(m, g, strict=True))
+
+
 def _rows_equal(model: list[tuple[Any, ...]], gold: list[tuple[Any, ...]], ordered: bool) -> bool:
     if len(model) != len(gold):
         return False
-    if not ordered:
-        model, gold = sorted(model, key=_sort_key), sorted(gold, key=_sort_key)
-    return all(
-        all(same_value(m, g) for m, g in zip(mr, gr, strict=True))
-        for mr, gr in zip(model, gold, strict=True)
-    )
+    if ordered:
+        return all(_row_equal(m, g) for m, g in zip(model, gold, strict=True))
+    if all(
+        _row_equal(m, g)
+        for m, g in zip(sorted(model, key=_sort_key), sorted(gold, key=_sort_key), strict=True)
+    ):
+        return True
+    # Sorting can misalign rows that only tie after rounding; match rows to rows instead
+    # (Kuhn's augmenting paths). Bounded, since it is quadratic.
+    if len(gold) > 300:
+        return False
+    owner: list[int | None] = [None] * len(model)
+
+    def place(g: int, seen: set[int]) -> bool:
+        for m in range(len(model)):
+            if m not in seen and _row_equal(model[m], gold[g]):
+                seen.add(m)
+                current = owner[m]
+                if current is None or place(current, seen):
+                    owner[m] = g
+                    return True
+        return False
+
+    return all(place(g, set()) for g in range(len(gold)))
 
 
 def rows_match(
@@ -126,8 +156,8 @@ def rows_match(
     candidates = [[m for m in range(m_width) if column_ok(g, m)] for g in range(len(cols))]
     if any(not c for c in candidates):
         return False
-    for mapping in permutations(range(m_width), len(cols)):
-        if all(mapping[g] in candidates[g] for g in range(len(cols))):
+    for mapping in product(*candidates):
+        if len(set(mapping)) == len(mapping):
             projected = [tuple(r[m] for m in mapping) for r in model_rows]
             if _rows_equal(projected, gold, ordered):
                 return True
@@ -148,9 +178,23 @@ def identity_match(
     return any(rows_match(head, gold_rows, ordered=ordered, gold_cols=[k]) for k in keys)
 
 
+STEMS = {"poss": r"poss(?:ession)?s?"}  # a stem whose prefix reading would match "possible"
+
+
+def _term_pattern(term: str) -> str:
+    t = term.lower()
+    if t in STEMS:
+        body = STEMS[t]
+    elif len(t) <= 4:
+        body = re.escape(t) + r"s?"
+    else:
+        return r"(?<![a-z0-9])" + re.escape(t)
+    return r"(?<![a-z0-9])" + body + r"(?![a-z0-9])"
+
+
 def mentions(text: str, terms: Sequence[str]) -> bool:
     low = text.lower()
-    return any(re.search(r"(?<![a-z0-9])" + re.escape(t.lower()), low) for t in terms)
+    return any(re.search(_term_pattern(t), low) for t in terms)
 
 
 # --- per question --------------------------------------------------------------------------------

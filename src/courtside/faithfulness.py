@@ -18,9 +18,11 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-_SCOPE = re.compile(r"\b\d{4}-\d{2}(?:-\d{2})?\b")  # dates and season labels
+_SCOPE = re.compile(r"\b\d{4}-\d{2}(?:\d{2})?(?:-\d{2})?\b")  # dates, 2025-26, 2025-2026
+# The (?!\d)(?!\.\d)(?!,\d) guards stop backtracking into a shorter number ("12-man" -> "1").
 _NUMBER = re.compile(
-    r"(?<![\w.])[-+−]?\$?(?P<int>\d{1,3}(?:,\d{3})+|\d+)(?P<frac>\.\d+)?(?!-[A-Za-z])"
+    r"(?<![\w.])[-+−]?\$?(?P<int>\d{1,3}(?:,\d{3})+|\d+)(?P<frac>\.\d+)?"
+    r"(?!\d)(?!\.\d)(?!,\d)(?!-[A-Za-z])(?!(?:st|nd|rd|th)\b)"
     r"(?:\s?(?P<pct>%|percent\b))?"
     r"(?:\s?(?P<mult>million\b|billion\b|thousand\b|[MBK]\b))?"
 )

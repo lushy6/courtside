@@ -53,8 +53,11 @@ EXIT_PAUSED = 3
 FIXED = (
     "run_id", "split", "config", "provider", "model", "rep", "prompt_sha256",
     "semantic_sha256", "db_sha256", "golden_sha256", "question_ids", "max_turns",
-    "max_output_tokens",
+    "max_output_tokens", "code_sha256",
 )  # fmt: skip
+# The code that shapes requests and runs the loop; a change to it changes the experiment.
+CODE = ("agent.py", "llm.py", "tools.py", "db.py", "validate.py", "entities.py", "semantic.py")
+REPLAY_FIELDS = ("outcome", "turns", "tool_calls", "sql", "answer_text", "refused", "result_rows")
 
 
 class DailyLimitReached(RuntimeError):
@@ -117,6 +120,13 @@ def sha256_file(path: Path) -> str:
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
+    return h.hexdigest()
+
+
+def code_sha256() -> str:
+    h = hashlib.sha256()
+    for name in CODE:
+        h.update(name.encode() + b"/" + (Path(__file__).parent / name).read_bytes())
     return h.hexdigest()
 
 
@@ -268,7 +278,7 @@ def run_main(argv: list[str] | None = None) -> int:
     if (args.ids or args.limit) and not args.run_id:
         p.error("a subset run needs its own --run-id")
     if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)  # live progress in logs
 
     questions = select(args.split, args.ids, args.limit)
     quota = QuotaTransport(
@@ -292,6 +302,7 @@ def run_main(argv: list[str] | None = None) -> int:
         "model": model.model,
         "rep": args.rep,
         "prompt_sha256": prompt_sha256(agent),
+        "code_sha256": code_sha256(),
         "semantic_sha256": sha256_file(SEMANTIC),
         "db_sha256": sha256_file(DB),
         "golden_sha256": sha256_file(GOLDEN_DIR / f"{args.split}.jsonl"),
@@ -408,8 +419,27 @@ def score_main(argv: list[str] | None = None) -> int:
         )
         if args.verify_replay:
             golden = load_run(run_id)[1]
-            same = stats.summarize(scoring.score_run(golden, replay_results(run_id))) == m
-            print(f"  replay from cassette reproduces metrics: {same}")
+            replayed = replay_results(run_id)
+            original = {r["id"]: r for r in load_run(run_id)[2]}
+            differ = [
+                r["id"]
+                for r in replayed
+                if any(
+                    r.get(k) != original[r["id"]].get(k)
+                    # an unrecorded provider error ends the replay at an earlier turn
+                    for k in (
+                        ("outcome",)
+                        if original[r["id"]].get("outcome") == "provider_error"
+                        else REPLAY_FIELDS
+                    )
+                )
+            ]
+            same_metrics = stats.summarize(scoring.score_run(golden, replayed)) == m
+            same = same_metrics and not differ
+            print(
+                f"  replay from cassette: metrics identical {same_metrics}, "
+                f"questions that differ {differ or 'none'}"
+            )
             status = status or (0 if same else 1)
     if args.compare:
         a, b = (scoring.score_run(*load_run(r)[1:]) for r in args.compare)

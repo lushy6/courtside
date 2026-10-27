@@ -121,6 +121,9 @@ def test_interrupted_run_resumes_without_repeating_a_call(
     replayed = runner.replay_results("run")
     original = runner.score_report("run")["metrics"]
     assert stats.summarize(scoring.score_run(questions, replayed)) == original
+    for again, first_time in zip(replayed, done, strict=True):
+        for key in runner.REPLAY_FIELDS:
+            assert again[key] == first_time[key], (again["id"], key)
 
 
 def test_retry_errors_drops_provider_errors_before_resuming(

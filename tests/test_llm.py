@@ -277,3 +277,14 @@ def test_retry_hint_parsing() -> None:
     assert _retry_hint("try again in 1m2.5s") == pytest.approx(62.5)
     assert _retry_hint('"retryDelay": "21s"') == 21.0
     assert _retry_hint("no hint") is None
+
+
+def test_cassette_does_not_freeze_other_400s(tmp_path: Path) -> None:
+    # A bad key or a quota precondition is also a 400; freezing it would block --retry-errors.
+    path = tmp_path / "run.jsonl"
+    rec = Cassette(
+        path, "record", inner=Scripted(ProviderError("HTTP 400: API key not valid", 400))
+    )
+    with pytest.raises(ProviderError):
+        rec.post("u", {}, {"q": 1})
+    assert len(Cassette(path, "replay")) == 0

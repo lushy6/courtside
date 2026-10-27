@@ -12,10 +12,11 @@ Modes:
   appended. An interrupted run therefore resumes without repeating any call.
 - ``live``: pass-through, nothing stored.
 
-Errors are not stored, so a resumed run retries them, with one exception: a deterministic client
-error (HTTP 400 / 422, e.g. Groq's ``tool_use_failed``) changes the conversation's path (the agent
+Errors are not stored, so a resumed run retries them, with one exception: Groq's HTTP 400
+``tool_use_failed`` is model behaviour that the adapter turns into an empty turn (the agent
 nudges the model and continues), so it is recorded and raised again on replay. Without it a run
-that met one could not be replayed.
+that met one could not be replayed. Other 400s (a bad key, a quota precondition) are not stored,
+or a fixed key could never recover the question.
 
 Because each agent turn's request contains the previous responses, replaying turn 1 yields the
 same turn-2 request, and a whole multi-turn conversation replays from one file.
@@ -32,7 +33,11 @@ from typing import Any, Literal
 from courtside.llm import HttpTransport, ProviderError, Transport
 
 Mode = Literal["replay", "record", "live"]
-RECORDED_ERRORS = frozenset({400, 422})
+
+
+def _recorded(error: ProviderError) -> bool:
+    """Errors that are part of the conversation, not of the account or the network."""
+    return error.status == 400 and "tool_use_failed" in str(error)
 
 
 class CassetteMiss(KeyError):
@@ -79,7 +84,7 @@ class Cassette:
         try:
             response = self.inner.post(url, headers, body)
         except ProviderError as error:
-            if error.status not in RECORDED_ERRORS:
+            if not _recorded(error):
                 raise  # transient or account errors are retried on resume, not frozen
             self.misses += 1
             self._store(key, url, body, {"error": {"status": error.status, "message": str(error)}})

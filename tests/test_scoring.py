@@ -8,7 +8,7 @@ import pytest
 
 from courtside import faithfulness, stats
 from courtside.golden import read_frozen
-from courtside.scoring import Score, rows_match, same_value, score_one, score_run
+from courtside.scoring import Score, mentions, rows_match, same_value, score_one, score_run
 
 DEV = {q["id"]: q for q in read_frozen("dev")}
 
@@ -38,7 +38,7 @@ def refusal(reason: str = "Not in this database.") -> dict[str, Any]:
         (122.0732, 122.07, True),  # gold rounded to 2 places
         (50.4, 50.39798097456803, True),  # the model rounded to 1 place
         (1.0, 0.688, False),
-        (0.7, 0.688, True),
+        (0.7, 0.688, False),  # rounding error above 1% of the gold value
         (None, None, True),
         (None, 0, False),
         ("71", 71, False),
@@ -190,3 +190,63 @@ def test_summary_is_a_pure_function_of_the_scores() -> None:
     assert summary == stats.summarize(
         score_run(golden, [{"id": q["id"], **gold_answer(q)} for q in golden])
     )
+
+
+# --- regressions from the phase 5 review ---------------------------------------------------------
+@pytest.mark.parametrize(
+    ("text", "claims"),
+    [
+        ("a 12-man rotation", []),
+        ("shot 45.5% on 10-of-22", ["45.5%", "22"]),
+        ("his 3rd straight", []),
+        ("the 2025-2026 season", []),
+        ("$41.5M and 41.5 million", ["$41.5M", "41.5 million"]),
+    ],
+)
+def test_claims_do_not_backtrack_into_shorter_numbers(text: str, claims: list[str]) -> None:
+    assert [c.text for c in faithfulness.claims_in(text)] == claims
+
+
+@pytest.mark.parametrize(
+    ("text", "terms", "hit"),
+    [
+        ("It's possible they are the best", ["poss"], False),
+        ("on 387 possessions", ["poss"], True),
+        ("min 100 poss", ["poss"], True),
+        ("a reliable sample", ["reliab"], True),
+        ("results are in", ["ts"], False),
+        ("by TS%", ["ts"], True),
+        ("measured in PPG", ["ppg"], True),
+        ("his 2026-27 salary", ["2026"], True),
+    ],
+)
+def test_mention_matching(text: str, terms: list[str], hit: bool) -> None:
+    assert mentions(text, terms) is hit
+
+
+@pytest.mark.parametrize(
+    ("model", "gold", "same"),
+    [
+        (0.1, 0.1449, False),  # one decimal is a 35% error on a small fraction
+        (2.96, 3.0, False),  # 3.0 carries no precision
+        (3, 3.0, True),
+        (0.69, 0.688, True),
+    ],
+)
+def test_rounding_tolerance_is_relative(model: Any, gold: Any, same: bool) -> None:
+    assert same_value(model, gold) is same
+
+
+def test_rows_that_tie_after_rounding_still_match() -> None:
+    gold = [[101.21, "B"], [101.24, "A"]]
+    assert rows_match([[101.2, "A"], [101.2, "B"]], gold, ordered=False)
+
+
+def test_wide_results_are_fast() -> None:
+    import time
+
+    gold = [[i, f"n{i}", i * 1.5] for i in range(5)]
+    model = [[*r, *range(30)] for r in gold]
+    start = time.monotonic()
+    assert rows_match(model, gold, ordered=False)
+    assert time.monotonic() - start < 1.0
