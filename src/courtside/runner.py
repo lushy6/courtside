@@ -10,7 +10,8 @@ config, prompt hash, semantic-layer, DB and golden-set hashes). Its provider cal
 skipped and a question cut off mid-conversation replays its recorded turns, so no call is
 repeated. A resume refuses to continue if anything that defines the run has changed.
 
-Free tiers are capped per day, so every real HTTP attempt is counted per provider and UTC day in
+Free tiers are capped per day, so every real HTTP attempt is counted per provider and quota day
+(Pacific for Gemini, UTC otherwise) in
 ``eval/results/_usage/`` and the run pauses (exit code 3) at ``--daily-limit``; run it again
 tomorrow. ``--rpm`` spaces requests out; HTTP 429s are waited out by ``RetryingTransport``.
 
@@ -30,10 +31,11 @@ import sys
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from functools import cache
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from courtside import __version__, scoring, stats
 from courtside.agent import CONFIGS, Agent
@@ -57,6 +59,9 @@ RESULTS = ROOT / "eval" / "results"
 CASSETTES = ROOT / "eval" / "cassettes"
 USAGE = RESULTS / "_usage"
 EXIT_PAUSED = 3
+# The day each provider's free quota resets on. Gemini resets at midnight Pacific; counting by UTC
+# day would keep yesterday's evening runs on today's tally and block a run Google would allow.
+QUOTA_DAY: dict[str, tzinfo] = {"gemini": ZoneInfo("America/Los_Angeles")}
 
 # Fields that define a run; a resume with any of them changed would mix two experiments.
 FIXED = (
@@ -74,7 +79,7 @@ class DailyLimitReached(RuntimeError):
 
 
 class QuotaTransport:
-    """Counts every real HTTP attempt per provider and UTC day, and spaces requests out."""
+    """Counts every real HTTP attempt per provider and quota day, and spaces requests out."""
 
     def __init__(
         self,
@@ -98,7 +103,8 @@ class QuotaTransport:
         self._last = float("-inf")
 
     def _path(self) -> Path:
-        day = datetime.fromtimestamp(self.clock(), UTC).date().isoformat()
+        zone = QUOTA_DAY.get(self.provider, UTC)
+        day = datetime.fromtimestamp(self.clock(), zone).date().isoformat()
         return self.usage_dir / f"{self.provider}-{day}.json"
 
     def used_today(self) -> int:
@@ -109,7 +115,7 @@ class QuotaTransport:
         used = self.used_today()
         if used >= self.daily_limit:
             raise DailyLimitReached(
-                f"{self.provider}: {used} requests today (UTC), limit {self.daily_limit}"
+                f"{self.provider}: {used} requests on its quota day, limit {self.daily_limit}"
             )
         if self.rpm > 0:
             wait = self._last + 60.0 / self.rpm - self.clock()
@@ -299,7 +305,8 @@ def run_main(argv: list[str] | None = None) -> int:
     p.add_argument("--run-id", default=None)
     p.add_argument("--ids", default=None, help="comma-separated question ids (use a --run-id)")
     p.add_argument("--limit", type=int, default=None)
-    p.add_argument("--daily-limit", type=int, default=900, help="real requests per UTC day")
+    # flash-lite's free tier answered 500 and refused the 501st (2026-10-26); keep a margin.
+    p.add_argument("--daily-limit", type=int, default=480, help="real requests per quota day")
     p.add_argument("--rpm", type=float, default=20.0, help="max requests per minute (0 = off)")
     p.add_argument("--max-turns", type=int, default=8)
     p.add_argument("--max-output-tokens", type=int, default=2048)

@@ -225,3 +225,28 @@ def test_a_per_minute_429_that_mentions_daily_quotas_is_retried_not_paused(
     body = {"messages": [{"role": "user", "content": DEV["L06"]["question"]}]}
     assert "choices" in retry.post("u", {}, body)  # transient failure waited out and retried
     assert quota.requests == 2
+
+
+@pytest.mark.parametrize(
+    "provider,utc_time,day",
+    [
+        # 05:36 UTC on Oct 27 is still Oct 26 in California: Google has not reset yet.
+        ("gemini", "2026-10-27T05:36:00+00:00", "2026-10-26"),
+        ("gemini", "2026-10-27T07:00:00+00:00", "2026-10-27"),  # midnight PDT
+        ("groq", "2026-10-27T05:36:00+00:00", "2026-10-27"),
+    ],
+)
+def test_usage_is_counted_on_the_providers_own_quota_day(
+    tmp_path: Path, provider: str, utc_time: str, day: str
+) -> None:
+    from datetime import datetime
+
+    at = datetime.fromisoformat(utc_time).timestamp()
+    quota = QuotaTransport(
+        RetryingTransport(None, sleep=lambda _: None),  # type: ignore[arg-type]
+        provider,
+        daily_limit=10,
+        usage_dir=tmp_path,
+        clock=lambda: at,
+    )
+    assert quota._path().name == f"{provider}-{day}.json"
