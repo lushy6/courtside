@@ -1,5 +1,5 @@
 {
-  "answered": 25,
+  "answered": 48,
   "base_cassette": null,
   "code_sha256": "9977122709e1db3b6aadf119d4c8fc9bacf6e23f1c65524feb6675d2f6fec46e",
   "config": "D",
@@ -89,8 +89,19 @@
       "http_requests": 2,
       "started_at": "2026-10-27T04:51:35+00:00",
       "status": "paused_daily_limit"
+    },
+    {
+      "cassette_hits": 6,
+      "cassette_new": 102,
+      "code_sha256": "ea3b4896fde5e524ef8aad652015a38065a79f8d2565d543d2918c9465cde316",
+      "finished_at": "2026-10-27T07:15:40+00:00",
+      "git_dirty": false,
+      "git_sha": "dc7623f1dc775fb8912430896109177e3e1b58b8",
+      "http_requests": 102,
+      "started_at": "2026-10-27T07:03:01+00:00",
+      "status": "complete"
     }
   ],
   "split": "dev",
-  "status": "paused_daily_limit"
+  "status": "complete"
 }

@@ -79,17 +79,19 @@ Dev numbers are for iterating, not for the README or resume.
 
 1. **Phase 6, iterate on dev only: IN PROGRESS, see docs/DEV_LOG.md.** Done: change 1 (force final_answer on
    the last turn, 39 -> 43/48, controlled run) and change 2 (contracts rule for league-wide aggregates, A24 fixed;
-   fresh run 42/48, McNemar vs change 1 p = 1.0). Change 3 (bd145e2, the `refused` definition) is committed but
-   its run `dev-D-flash-lite-p6c3` is paused at 25/48 on flash-lite's real cap of **500 requests/day**. Resume:
-   `python eval/run.py --provider gemini --model gemini-3.5-flash-lite --config D --split dev --run-id
-   dev-D-flash-lite-p6c3 --rpm 8 --daily-limit 480 --allow-code-change`, then score, `--verify-replay`,
-   `--compare` vs p6c2, log it. (`--allow-code-change` because the 429 classification moved into llm.py, which
-   is in the code fingerprint; request bodies are unchanged and all 25 recorded questions replay identically.)
+   fresh run 42/48, McNemar vs change 1 p = 1.0) and change 3 (the `refused` definition, run
+   `dev-D-flash-lite-p6c3`: 44/48, refusal 8/8, false refusals 0/40, McNemar vs p6c2 p = 0.625; kept).
+   **Open decision (user):** T02 in p6c3 is a scorer false negative (the right lineup, identified by a bare
+   `lineup` id and full names instead of `lineup_uid` / surnames). Proposed narrow scorer rule in DEV_LOG
+   change 3; if accepted, add it to the scorer list above and rescore all dev runs. Then: noise-floor double
+   run of the final dev config (see DEV_LOG candidates), then stop iterating.
+   flash-lite's real free cap is **500 requests/day**, reset at midnight Pacific (the usage counter now
+   follows each provider's quota day).
    Measure agent-only changes with `--base-cassette <previous run>`; prompt changes need a fresh run. Never tune on
    the test split; do not edit the golden set (locked). Use `--daily-limit 480` from now on (500 is the cap).
 1b. **Demo UI (app/, replaces PLAN's Streamlit app):** Vite + React + TS, replays recorded dev runs from
-   `app/public/demo.json` at $0 (no keys, no live model). `npm run dev` / `npm run build` in app/. It currently
-   shows p6c2. After p6c3 completes, re-export: `python scripts/export_demo.py dev-D-flash-lite-p6c3`. The
+   `app/public/demo.json` at $0 (no keys, no live model). `npm run dev` / `npm run build` in app/. It shows
+   p6c3 (re-export after a newer run: `python scripts/export_demo.py <run_id>`). The
    exporter accepts a run recorded with other code only if every question replays to the recorded SQL and
    answer; a run whose prompt or agent changed since (e.g. p6c2) stops with a clear message. To export such a
    run, replay it from a `git worktree` at the run's `git_sha`, with `PYTHONPATH=src` and its cassette,

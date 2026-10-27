@@ -50,22 +50,36 @@ Run `dev-D-flash-lite-p6c2`, fresh (the prompt changed; 248 requests). **43 -> 4
 
 **Kept**: it fixes its target mechanically; the other flips are sampling noise on unrelated questions.
 
-## Change 3: define `refused` as any cannot-answer reply (bd145e2), RUN INCOMPLETE
+## Change 3 (bd145e2): define `refused` as any cannot-answer reply
 
 Target U06 (correct decline in the text, `refused` left false). The `refused` field description in the
 final_answer tool now says: true if the data cannot or must not answer (another season, a prediction, an
 entity or statistic not in the data, a write), and must be true whenever answer_text says the answer is not
 available. A prompt change, so a fresh run: `dev-D-flash-lite-p6c3`.
 
-**Status: 25/48 asked, paused.** The first pause was false (a per-minute 429 whose details also list per-day
-quotas; fixed in 12c1080, which now also needs a retry hint over 5 minutes). The second is real: flash-lite's
-free tier is 500 requests/day, not the ~1000 assumed. Resume after the quota resets (midnight Pacific) with
-the same command plus `--allow-code-change`; the 25 finished questions replay from the cassette for free.
-The code exception is transport only: after the pre-push review, 429s are classified from Google's
-QuotaFailure violations (and Groq's message) in llm.py, which moves the code fingerprint; request bodies,
-prompt and semantic hashes are unchanged, and all 25 recorded questions replay identically. **No result yet**: do not
-quote the McNemar printed on the partial run (p = 1.5e-05 was the unasked questions scoring as wrong;
-`--compare` now refuses partial runs). Judge it on the refusal tier and the false-refusal rate (0/40 so far).
+Run history: it took two quota days. The first pause was false (a per-minute 429 whose details also list
+per-day quotas; fixed in 12c1080, then replaced by QuotaFailure classification in llm.py). The second was
+real: flash-lite's free tier is 500 requests/day. The 23 remaining questions ran on 2026-10-27 after the
+Pacific-midnight reset, with `--allow-code-change` (transport only: request bodies, prompt and semantic hashes
+unchanged). `--verify-replay`: metrics and every question identical.
+
+**42 -> 44/48** [80, 97]; refusal **8/8** (was 7/8), false refusals **0/40**, faithfulness 38/40, 0 leaks.
+McNemar vs p6c2: 1 vs 3 discordant, exact p = 0.625, i.e. not significant. Per question, hand-checked:
+
+- U06 fixed (its target): "Tyrese Haliburton is not found in the player directory", `refused` true.
+- T04 now right and M04 now right (500-FGA minimum, matching the gold): fresh sampling, not the change.
+- T02 newly "wrong", and **this is a scorer false negative, not a model error**. The model ranked by `shrunk`
+  and returned exactly the accepted lineup (Brown, White, Queta, Pritchard, Hauser; shrunk 7.236, 387 poss),
+  and the answer also gives the other accepted reading. But its identifying columns are the bare `lineup`
+  (player ids without the `2025-26|1610612738|` prefix of `lineup_uid`) and a GROUP_CONCAT of full names
+  ("Jaylen Brown, ..."), while the gold has `lineup_uid` and surnames only. Neither matches under the current
+  representation rules. **Decision left for the user** (a scorer change after seeing output): accept a
+  `lineup` id equal to the suffix of the gold `lineup_uid`. That is narrow, testable both ways, and
+  representation rather than correctness. If accepted, rescore r1 .. p6c3 and note it in HANDOFF's scorer list.
+- Still wrong: J25 (sums raw contract rows; the answer text even states the correct de-duplicated total),
+  M07 (metric named in words not on the locked list), M08 (100-3PA minimum vs the gold's reading).
+
+**Kept**: it fixes its target with no false refusals, and the other flips are noise or the scorer.
 
 ## Candidates for the next changes (not done yet)
 
