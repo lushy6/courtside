@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from courtside.agent import CONFIGS, Agent, entity_hints, system_prompt
+from courtside.agent import CONFIGS, FINAL_ANSWER, Agent, entity_hints, system_prompt
 from courtside.db import open_readonly
 from courtside.entities import EntityResolver
 from courtside.llm import Completion, Message, ProviderError, ToolCall, ToolSpec, Usage
@@ -197,3 +197,9 @@ def test_last_allowed_turn_forces_final_answer(
     last = model.seen[2]["messages"][-1]
     assert last.role == "user" and "last turn" in last.text
     assert "last turn" not in model.seen[1]["messages"][-1].text  # earlier turns are unchanged
+
+
+def test_refused_is_defined_as_any_cannot_answer_reply() -> None:
+    # Phase 6, change 3: on dev, U06 said "Haliburton is not in the database" with refused=false.
+    text = FINAL_ANSWER.parameters["properties"]["refused"]["description"]
+    assert "not in the data" in text and "must be true" in text

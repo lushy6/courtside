@@ -73,7 +73,12 @@ FINAL_ANSWER = ToolSpec(
             },
             "refused": {
                 "type": "boolean",
-                "description": "True if this data cannot or must not answer the question.",
+                "description": (
+                    "True if this data cannot or must not answer the question: another season, "
+                    "a prediction, a person, team or statistic that is not in the data, or a "
+                    "request to change data. If answer_text says the answer is not available "
+                    "or not found, this must be true."
+                ),
             },
             "refusal_reason": {"type": "string", "description": "Why, when refused is true."},
         },
