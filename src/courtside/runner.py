@@ -24,6 +24,7 @@ import hashlib
 import json
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -62,7 +63,7 @@ PER_DAY = re.compile(r"per day|PerDay|\(TPD\)|\(RPD\)", re.IGNORECASE)
 FIXED = (
     "run_id", "split", "config", "provider", "model", "rep", "prompt_sha256",
     "semantic_sha256", "db_sha256", "golden_sha256", "question_ids", "max_turns",
-    "max_output_tokens", "code_sha256",
+    "max_output_tokens", "code_sha256", "base_cassette",
 )  # fmt: skip
 # The code that shapes requests and runs the loop; a change to it changes the experiment.
 CODE = ("agent.py", "llm.py", "tools.py", "db.py", "validate.py", "entities.py", "semantic.py")
@@ -303,6 +304,13 @@ def run_main(argv: list[str] | None = None) -> int:
     p.add_argument("--max-output-tokens", type=int, default=2048)
     p.add_argument("--retry-errors", action="store_true", help="re-ask provider_error questions")
     p.add_argument(
+        "--base-cassette",
+        default=None,
+        metavar="RUN_ID",
+        help="start from that run's recorded calls: identical requests replay, so only "
+        "conversations a change actually alters make new calls (a controlled comparison)",
+    )
+    p.add_argument(
         "--allow-code-change",
         action="store_true",
         help="resume although code_sha256 changed (only for changes that keep requests identical)",
@@ -323,7 +331,13 @@ def run_main(argv: list[str] | None = None) -> int:
     run_id = args.run_id or default_run_id(
         args.split, args.config, args.provider, probe.model, args.rep
     )
-    cassette = Cassette(CASSETTES / f"{run_id}.jsonl", "record", RetryingTransport(quota))
+    cassette_path = CASSETTES / f"{run_id}.jsonl"
+    if args.base_cassette and not cassette_path.exists():
+        base = CASSETTES / f"{args.base_cassette}.jsonl"
+        if not base.exists():
+            p.error(f"no cassette for base run {args.base_cassette}")
+        shutil.copyfile(base, cassette_path)
+    cassette = Cassette(cassette_path, "record", RetryingTransport(quota))
     model = make_model(args.provider, probe.model, cassette)
     agent = build_agent(
         model, args.config, max_turns=args.max_turns, max_output_tokens=args.max_output_tokens
@@ -338,6 +352,7 @@ def run_main(argv: list[str] | None = None) -> int:
         "rep": args.rep,
         "prompt_sha256": prompt_sha256(agent),
         "code_sha256": code_sha256(),
+        "base_cassette": args.base_cassette,
         "semantic_sha256": sha256_file(SEMANTIC),
         "db_sha256": sha256_file(DB),
         "golden_sha256": sha256_file(GOLDEN_DIR / f"{args.split}.jsonl"),

@@ -255,7 +255,18 @@ class Agent:
         final: dict[str, Any] | None = None
         force: str | None = None  # set after a turn without a tool call
         try:
-            for _ in range(self.max_turns):
+            for turn_index in range(self.max_turns):
+                if self.config.loop and turn_index == self.max_turns - 1 and force is None:
+                    # A model still exploring on its last turn must commit to an answer
+                    # (phase 6, change 1: 6/48 dev questions ended at max_turns without one).
+                    messages.append(
+                        Message(
+                            "user",
+                            "This is your last turn: call final_answer now with your best "
+                            "answer from what you have seen.",
+                        )
+                    )
+                    force = FINAL_ANSWER.name
                 completion = self.model.complete(
                     messages,
                     self.tools,

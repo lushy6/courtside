@@ -169,7 +169,7 @@ def test_max_turns_and_provider_errors_are_outcomes_not_crashes(
 ) -> None:
     looping = FakeModel(*[turn(call("run_sql", query="SELECT 1")) for _ in range(3)])
     result = Agent(looping, con, layer, CONFIGS["C"], max_turns=3).ask("q")
-    assert result.outcome == "max_turns" and result.turns == 3
+    assert result.outcome == "max_turns" and result.turns == 3  # a model can ignore the force
 
     failing = FakeModel(ProviderError("HTTP 500", 500))
     result = Agent(failing, con, layer, CONFIGS["C"]).ask("q")
@@ -180,3 +180,20 @@ def test_tool_errors_go_back_to_the_model(con: sqlite3.Connection, layer: Semant
     model = FakeModel(turn(call("run_sql", query="SELECT nope FROM players")), turn(final()))
     Agent(model, con, layer, CONFIGS["C"]).ask("q")
     assert '"ok": false' in model.seen[1]["messages"][-1].text
+
+
+def test_last_allowed_turn_forces_final_answer(
+    con: sqlite3.Connection, layer: SemanticLayer
+) -> None:
+    # Phase 6, change 1: on dev, 6/48 flash-lite questions ended at max_turns still querying.
+    model = FakeModel(
+        turn(call("run_sql", query=BROWN_SQL)),
+        turn(call("run_sql", query=BROWN_SQL)),
+        turn(final()),
+    )
+    result = Agent(model, con, layer, CONFIGS["C"], max_turns=3).ask("q")
+    assert result.outcome == "answered" and result.result_rows == [[71]]
+    assert [s["force"] for s in model.seen] == [None, None, "final_answer"]
+    last = model.seen[2]["messages"][-1]
+    assert last.role == "user" and "last turn" in last.text
+    assert "last turn" not in model.seen[1]["messages"][-1].text  # earlier turns are unchanged
