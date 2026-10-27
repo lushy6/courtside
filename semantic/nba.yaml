@@ -41,8 +41,10 @@ rules:
     text: >
       contracts hold 2026-27 salaries while all performance data is 2025-26. When combining them,
       say so. 6 traded players have two contract rows (one per team) with the SAME salary, so
-      never SUM salary per player; use DISTINCT player_id or MAX(salary). A team's payroll counts
-      every row on that team.
+      any total, average or count over players that is not split by team (league-wide, by
+      option, by salary band) must count each player once: aggregate over
+      (SELECT DISTINCT player_id, salary, ... FROM contracts). A team's payroll counts every row
+      on that team.
   - id: lineup_keys
     text: >
       Join lineup_stats, lineup_bootstrap on lineup_uid only (it contains the season and team).
