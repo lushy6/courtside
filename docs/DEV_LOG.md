@@ -60,7 +60,10 @@ available. A prompt change, so a fresh run: `dev-D-flash-lite-p6c3`.
 **Status: 25/48 asked, paused.** The first pause was false (a per-minute 429 whose details also list per-day
 quotas; fixed in 12c1080, which now also needs a retry hint over 5 minutes). The second is real: flash-lite's
 free tier is 500 requests/day, not the ~1000 assumed. Resume after the quota resets (midnight Pacific) with
-the same command; the 25 finished questions replay from the cassette for free. **No result yet**: do not
+the same command plus `--allow-code-change`; the 25 finished questions replay from the cassette for free.
+The code exception is transport only: after the pre-push review, 429s are classified from Google's
+QuotaFailure violations (and Groq's message) in llm.py, which moves the code fingerprint; request bodies,
+prompt and semantic hashes are unchanged, and all 25 recorded questions replay identically. **No result yet**: do not
 quote the McNemar printed on the partial run (p = 1.5e-05 was the unasked questions scoring as wrong;
 `--compare` now refuses partial runs). Judge it on the refusal tier and the false-refusal rate (0/40 so far).
 

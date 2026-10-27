@@ -57,8 +57,6 @@ RESULTS = ROOT / "eval" / "results"
 CASSETTES = ROOT / "eval" / "cassettes"
 USAGE = RESULTS / "_usage"
 EXIT_PAUSED = 3
-DAILY_WAIT_S = 300.0  # a retry hint longer than this is a daily cap, not a per-minute one
-PER_DAY = re.compile(r"per day|PerDay|\(TPD\)|\(RPD\)", re.IGNORECASE)
 
 # Fields that define a run; a resume with any of them changed would mix two experiments.
 FIXED = (
@@ -127,10 +125,9 @@ class QuotaTransport:
         except RateLimited as error:
             # The provider's own daily cap (Groq: tokens per day; Gemini: requests per day).
             # Waiting minutes per question would only turn the rest of the run into errors.
-            # A per-minute 429 can still mention per-day quotas in its details (Gemini lists
-            # them); only a long retry hint means today's budget is really gone.
-            hint = error.retry_after_s
-            if PER_DAY.search(str(error)) and (hint is None or hint > DAILY_WAIT_S):
+            # The adapter identifies the exceeded quota before trimming its diagnostics.
+            # A short retry hint does not make an exhausted daily quota a per-minute cap.
+            if error.daily:
                 raise DailyLimitReached(f"{self.provider}: {str(error)[:600]}") from error
             raise
 

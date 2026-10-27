@@ -8,7 +8,12 @@ type Load = { state: "loading" } | { state: "error"; message: string } | { state
 const SWITCH_MS = 110;
 
 function fromHash(questions: Question[]): string {
-  const id = decodeURIComponent(window.location.hash.slice(1));
+  let id: string;
+  try {
+    id = decodeURIComponent(window.location.hash.slice(1));
+  } catch {
+    return questions[0].id;
+  }
   return questions.some((q) => q.id === id) ? id : questions[0].id;
 }
 

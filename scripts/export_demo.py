@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from courtside import runner
-from courtside.cassette import Cassette
+from courtside.cassette import Cassette, CassetteMiss
 from courtside.llm import Completion, Message, ToolSpec, make_model
 
 OUT = runner.ROOT / "app" / "public" / "demo.json"
@@ -113,9 +113,12 @@ def export(run_id: str) -> dict[str, Any]:
     if manifest["split"] != "dev":
         raise SystemExit("only dev runs may be published; the test split is frozen until phase 7")
     if manifest.get("code_sha256") != runner.code_sha256():
-        raise SystemExit(
-            f"{run_id} was recorded with other code (code_sha256 differs); its cassette cannot be "
-            "replayed by this code. Export a run recorded at the current commit."
+        # Not fatal by itself: a transport-only change (e.g. 429 handling in llm.py) moves the hash
+        # without changing a single request. The replay below is the real check: any request the
+        # cassette lacks raises CassetteMiss, and any differing SQL or answer aborts the export.
+        print(
+            f"note: {run_id} was recorded with other code (code_sha256 differs); "
+            "exporting only if every question replays identically"
         )
     cassette = Cassette(runner.CASSETTES / f"{run_id}.jsonl", "replay")
     model = make_model(manifest["provider"], manifest["model"], cassette)
@@ -136,7 +139,14 @@ def export(run_id: str) -> dict[str, Any]:
         if recorded["outcome"] == "provider_error":
             recorder.messages, recorder.last = [], None  # never recorded: no turns to show
         else:
-            replayed = agent.ask(gold["question"])
+            try:
+                replayed = agent.ask(gold["question"])
+            except CassetteMiss:
+                raise SystemExit(
+                    f"{gold['id']}: this code sends a request the cassette never recorded (the "
+                    "prompt or agent changed since the run). Replay it from a worktree at the "
+                    "run's git_sha; see docs/HANDOFF.md."
+                ) from None
             if replayed.sql != recorded["sql"] or replayed.answer_text != recorded["answer_text"]:
                 raise SystemExit(f"{gold['id']}: replay differs from the recorded run")
         score = scores[gold["id"]]

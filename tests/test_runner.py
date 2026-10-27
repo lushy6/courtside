@@ -170,8 +170,9 @@ def test_default_run_id() -> None:
     )
 
 
+@pytest.mark.parametrize("retry_after", [None, 15.0, 120.0, 700.0])
 def test_a_provider_daily_cap_pauses_instead_of_recording_errors(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, retry_after: float | None
 ) -> None:
     from courtside.llm import RateLimited
 
@@ -180,7 +181,7 @@ def test_a_provider_daily_cap_pauses_instead_of_recording_errors(
             self, url: str, headers: Mapping[str, str], body: dict[str, Any]
         ) -> dict[str, Any]:
             raise RateLimited(
-                "Rate limit reached for model on tokens per day (TPD): Limit 200000", 700.0
+                "Rate limit reached for model on tokens per day (TPD): Limit 200000", retry_after
             )
 
     monkeypatch.setattr(runner, "RESULTS", tmp_path / "results")
@@ -200,7 +201,10 @@ def test_a_provider_daily_cap_pauses_instead_of_recording_errors(
     assert quota.requests == 1  # no retry loop against a daily cap
 
 
-def test_a_per_minute_429_that_mentions_daily_quotas_is_retried_not_paused(tmp_path: Path) -> None:
+@pytest.mark.parametrize("retry_after", [None, 15.0])
+def test_a_per_minute_429_that_mentions_daily_quotas_is_retried_not_paused(
+    tmp_path: Path, retry_after: float | None
+) -> None:
     from courtside.llm import RateLimited
 
     class MinuteThenOk(FakeGroq):
@@ -212,12 +216,12 @@ def test_a_per_minute_429_that_mentions_daily_quotas_is_retried_not_paused(tmp_p
             MinuteThenOk.calls += 1
             if MinuteThenOk.calls == 1:
                 raise RateLimited(
-                    "quota GenerateRequestsPerDayPerProjectPerModel; per minute", 15.0
+                    "quota GenerateRequestsPerDayPerProjectPerModel; per minute", retry_after
                 )
             return super().post(url, headers, body)
 
     quota = QuotaTransport(MinuteThenOk(), "gemini", daily_limit=100, usage_dir=tmp_path)
     retry = RetryingTransport(quota, sleep=lambda s: None)
     body = {"messages": [{"role": "user", "content": DEV["L06"]["question"]}]}
-    assert "choices" in retry.post("u", {}, body)  # waited 15 s and retried
+    assert "choices" in retry.post("u", {}, body)  # transient failure waited out and retried
     assert quota.requests == 2

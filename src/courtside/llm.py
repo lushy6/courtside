@@ -42,11 +42,14 @@ class ProviderError(RuntimeError):
 
 
 class RateLimited(ProviderError):
-    """HTTP 429. ``retry_after_s`` is the provider's hint when it sends one."""
+    """HTTP 429, with the retry hint and evidence of an exceeded daily quota."""
 
-    def __init__(self, message: str, retry_after_s: float | None = None) -> None:
+    def __init__(
+        self, message: str, retry_after_s: float | None = None, *, daily: bool | None = None
+    ) -> None:
         super().__init__(message, status=429)
         self.retry_after_s = retry_after_s
+        self.daily = _daily_quota(message) if daily is None else daily
 
 
 @dataclass(frozen=True)
@@ -114,11 +117,14 @@ class HttpTransport:
                 parsed: dict[str, Any] = json.loads(response.read().decode("utf-8"))
                 return parsed
         except urllib.error.HTTPError as error:
-            detail = error.read().decode("utf-8", errors="replace")[:500]
+            detail = error.read().decode("utf-8", errors="replace")
             if error.code == 429:
                 retry = _float_or_none(error.headers.get("retry-after")) or _retry_hint(detail)
-                raise RateLimited(f"rate limited: {detail}", retry) from error
-            raise ProviderError(f"HTTP {error.code}: {detail}", status=error.code) from error
+                # Parse metadata before trimming the diagnostic: RetryInfo often comes last.
+                raise RateLimited(
+                    f"rate limited: {detail[:500]}", retry, daily=_daily_quota(detail)
+                ) from error
+            raise ProviderError(f"HTTP {error.code}: {detail[:500]}", status=error.code) from error
         except urllib.error.URLError as error:
             raise ProviderError(f"network error: {error.reason}") from error
         except TimeoutError as error:  # a slow body read raises this directly, not URLError
@@ -131,7 +137,8 @@ class RetryingTransport:
     Also retries 500/502/503/504 ("model overloaded") with backoff.
     Uses the provider's hint when there is one (a Retry-After header, Groq's "try again in 15.7s",
     Gemini's "retryDelay": "15s"), otherwise exponential backoff. Gives up after ``max_retries``
-    or when a single wait would exceed ``max_wait_s`` (a daily cap, not a per-minute one).
+    or when a single wait would exceed ``max_wait_s``. The delay alone does not identify
+    which quota was exceeded; the runner handles explicit daily quota failures separately.
     """
 
     def __init__(
@@ -218,6 +225,48 @@ def _retry_hint(detail: str) -> float | None:
         return float(m.group(1) or 0) * 60 + float(m.group(2))
     m = re.search(r'"retryDelay"\s*:\s*"([\d.]+)s"', detail)
     return float(m.group(1)) if m else None
+
+
+def _daily_quota(detail: str) -> bool:
+    """Recognize exceeded quotas, not daily limits merely mentioned in help or metadata."""
+    try:
+        payload = json.loads(detail)
+    except json.JSONDecodeError:
+        payload = {"error": {"message": detail}}
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if not isinstance(error, dict):
+        return False
+    details = error.get("details")
+    if isinstance(details, list):
+        for item in details:
+            if not isinstance(item, dict) or item.get("@type") != (
+                "type.googleapis.com/google.rpc.QuotaFailure"
+            ):
+                continue
+            violations = item.get("violations")
+            if not isinstance(violations, list):
+                continue
+            for violation in violations:
+                if not isinstance(violation, dict):
+                    continue
+                # Google QuotaFailure entries describe limits actually exceeded.
+                period = " ".join(
+                    str(violation.get(k, "")) for k in ("quotaId", "quotaMetric", "description")
+                )
+                if re.search(r"per[ _-]?day|\bdaily\b|\b(?:TPD|RPD)\b", period, re.IGNORECASE):
+                    return True
+    # Groq names the exceeded period in error.message, without QuotaFailure details. Gemini's
+    # message also lists exceeded quotas ("... requests per day limit exceeded"), a fallback for
+    # when details are missing or the body was cut short.
+    message = error.get("message")
+    return isinstance(message, str) and bool(
+        re.search(
+            r"\brate limit reached\b[^\n]*?\bon (?:tokens|requests) per day\b"
+            r"|\bper day limit exceeded\b",
+            message,
+            re.IGNORECASE,
+        )
+    )
 
 
 def _parse_arguments(raw: object) -> dict[str, Any]:
