@@ -1,51 +1,46 @@
-# Handoff: Courtside phase 4 (LLM adapter + agent), in progress 2026-10-26
+# Handoff: Courtside after phase 4 (2026-10-26)
 
 Paste this into a new Claude Code session to continue:
 
-> Continue Courtside phase 4 in C:\Users\birbu\Projects\Sports\_Projects\Shared\courtside. Read docs/HANDOFF.md
-> and docs/PLAN.md first. Finish the open items in HANDOFF.md, run ruff/mypy/pytest, commit, and update my memory notes.
+> Continue Courtside in C:\Users\birbu\Projects\Sports\_Projects\Shared\courtside. Read docs/HANDOFF.md and
+> docs/PLAN.md first, then do the "Next" list in HANDOFF.md, starting with phase 5. Dev split only.
 
-## State (uncommitted; nothing from phase 4 is committed yet)
+## Phase 4: done (committed 7dd119b)
 
-New files: `src/courtside/llm.py` (Message/ToolSpec/Completion types, HttpTransport, RetryingTransport,
-GroqModel, GeminiModel, make_model, .env loading), `src/courtside/cassette.py` (record/replay/live, key =
-sha256(url+body), never stores headers), `src/courtside/agent.py` (configs A-D, final_answer tool, loop,
-entity hints, executes the final SQL through run_query), `src/courtside/ask.py` (CLI:
-`.venv/Scripts/python.exe -m courtside.ask --provider gemini|groq --config A-D --cassette runs/x.jsonl "question"`).
-ruff + ruff format + mypy strict are clean as of the last check. **No tests written yet for these modules.**
+- `src/courtside/llm.py`: provider-agnostic `Message` / `ToolSpec` / `Completion`; `GroqModel`, `GeminiModel`;
+  `HttpTransport` (explicit User-Agent, timeouts -> 408); `RetryingTransport` (429 hints, 408/5xx backoff);
+  keys from `.env` (GEMINI_API_KEY, GROQ_API_KEY), only ever sent as headers.
+- `src/courtside/cassette.py`: record / replay / live, keyed by sha256(url + body); headers never stored.
+- `src/courtside/agent.py`: configs A-D (PLAN 6.3), one `final_answer` tool for every provider and config, the
+  final SQL is executed through the three safety layers, tool results delimited as data, entity hints in D only.
+- `src/courtside/ask.py`: `.venv/Scripts/python.exe -m courtside.ask --provider groq --model qwen/qwen3.8-27b
+  --config D --cassette eval/cassettes/smoke/x.jsonl "question"` (add `--replay` to run offline).
+- Tests: `tests/test_llm.py`, `tests/test_agent.py` (offline; fake transport / fake model over the real DB).
+- Done-when met: Groq `qwen/qwen3.8-27b`, config D, dev question L06 -> 71 (gold), 2 turns, 6.7 s; replays from
+  `eval/cassettes/smoke/groq_qwen3.8-27b_L06.jsonl` in 0.0 s.
 
-Keys: `.env` has GEMINI_API_KEY and GROQ_API_KEY (verified working; never print them). Smoke cassettes in `eval/cassettes/smoke/` (committed;
-headers are never stored, so no secrets).
+## Findings to carry into RESULTS / README
 
-## Findings so far (keep; they go in the README / RESULTS later)
+- Groq's CDN returns HTTP 403 (code 1010) for urllib's default User-Agent.
+- Free Groq limits bite on tokens per minute: gpt-oss-120b 8,000 TPM, and one agent turn is ~3.2-3.7k tokens.
+- An empty `Cassette` is falsy (it has `__len__`), so `transport or default()` silently dropped it and nothing was
+  recorded; fixed with `is not None`, regression test mutation-checked.
+- `openai/gpt-oss-120b` (Groq) on L06: found the player, ran the right SQL, saw 71, then returned an empty `stop`
+  turn; forced `final_answer` gives HTTP 400 `tool_use_failed`, non-deterministically. Not the schema; passing back
+  `reasoning` did not fix it reliably. Cassette kept: `eval/cassettes/smoke/groq_gpt-oss-120b_L06_failed.jsonl`.
+  This is a model / tool-format failure to REPORT, not to hide.
+- Gemini: `gemini-2.5-flash` closed to new users (404); default is `gemini-3.8-flash`, which was 503 "high demand"
+  for 9 minutes of retries on 2026-10-26. Not yet run end to end.
 
-- Groq's CDN returns HTTP 403 code 1010 for urllib's default User-Agent -> HttpTransport sends `courtside/0.1`.
-- Free Groq `openai/gpt-oss-120b` cap is **8,000 tokens/minute**; one agent turn is ~3.2-3.6k tokens, so ~2 turns/min.
-  RetryingTransport parses "try again in 15.7s" / Gemini "retryDelay" and waits; also retries 500/502/503/504.
-- Bug found + fixed: `Cassette` defines `__len__`, so an EMPTY cassette is falsy and `transport or default()` silently
-  dropped it (nothing recorded). Now `is not None` checks. **Add a regression test.**
-- gpt-oss-120b on Groq (dev question L06 "How many games did Jaylen Brown play in?", gold 71): it resolved the player,
-  ran the right SQL and saw 71, then returned an EMPTY `stop` turn instead of calling final_answer; with
-  tool_choice required/forced it gets HTTP 400 `tool_use_failed` (non-deterministic: once it produced text).
-  Not the schema (all-string schema fails too). Passing back `reasoning` did not fix it reliably. Handled in code as an
-  empty turn -> nudge + forced final_answer, but it still hits max_turns. Next: try `qwen/qwen3.8-27b` on Groq, or
-  accept a plain-text final answer as fallback (parse sql from the last successful run_sql) and REPORT it as a
-  model-format failure, not silently.
-- Gemini: `gemini-2.5-flash` is closed to new users (404) -> default is now `gemini-3.8-flash`. Got a 503 "high
-  demand" once and a 120 s read timeout once.
+## Next
 
-## Open items, in order
-
-1. DONE: read timeouts map to ProviderError(status=408), retried as transient.
-2. DONE: Groq qwen/qwen3.8-27b answered L06 correctly (71) in 2 turns, cassette eval/cassettes/smoke/groq_qwen3.8-27b_L06.jsonl replays offline. gemini-3.8-flash was 503 for 9 min; retry later.
-3. Tests (no network): adapter request/response fixtures for Groq + Gemini (tool calls, tool results, Gemini
-   consecutive functionResponse merge, raw parts echoed back, usage parsing, stop reasons, tool_use_failed mapping),
-   cassette (record -> replay identical, replay miss raises, headers/key never written, empty cassette not dropped),
-   RetryingTransport with a fake sleep (429 hint, 503 backoff, gives up past max_wait), agent with a scripted fake
-   model (loop config C/D: run_sql then final_answer; single-shot A/B only gets final_answer; refusal; max_turns;
-   empty-turn -> forced final_answer; tool results delimited as data; entity hints only in D).
-4. Commit phase 4 to main (solo private repo; commit to main, see memory). Update docs/PLAN.md status and memory
-   `courtside_project.md`.
-5. Phase 5 (eval harness run.py / score.py) only after that.
-
-Rules: never tune or run on the test split before phase 7; dev split only. Report null results plainly.
+1. Retry Gemini end to end (`--provider gemini`); if 3.8-flash stays overloaded try `gemini-3.8-flash-lite` or
+   `gemini-flash-lite-latest`. Echoed thought signatures are tested offline only so far.
+2. Decide the two free models for the ablation: likely qwen3.8-27b (Groq) + one Gemini Flash; record gpt-oss as a
+   failed candidate with its reason.
+3. Phase 5: `eval/run.py` (one config over a split -> results/<run_id>.jsonl + manifest.json with git SHA, model,
+   config, prompt hash, semantic sha256, DB sha256, golden hash; daily request counter; resumable via the cassette)
+   and `eval/score.py` (execution accuracy per PLAN 6.2, refusal accuracy, faithfulness, Wilson CIs, McNemar).
+   Done when: re-scoring a cassette reproduces identical numbers; an interrupted run resumes without repeat calls.
+4. Then phase 6 (iterate on dev only) and 7 (frozen test runs). Never touch the test split before phase 7.
+5. Claude adapter for 7b: load the `claude-api` skill first; hard $20 cap.

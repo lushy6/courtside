@@ -69,7 +69,7 @@ class Cassette:
         self.misses += 1
         self._entries[key] = response
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as f:
+        with self.path.open("a", encoding="utf-8", newline="\n") as f:  # same bytes on every OS
             line = {"key": key, "url": url, "request": body, "response": response}
             f.write(json.dumps(line, sort_keys=True) + "\n")
         return response
