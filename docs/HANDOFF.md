@@ -114,6 +114,16 @@ Dev numbers are for iterating, not for the README or resume.
    must print "freeze intact": change nothing in src/, semantic/, eval/golden/ or the DB until phase 7 is
    done. Estimated calendar: flash-lite ~2,300 requests at 480/day, about 5 days; qwen ~20 test
    questions/day on the token cap, about 11 days for 3 reps (stop at fewer reps if needed and say so).
+   Progress 2026-10-28: flash-lite A r1 and B r1 complete (72/72), C r1 running; qwen D r1 at 13/72. A reboot
+   (10:56 local) killed both sleeping lanes; restarted from the repo root with
+   `Start-Process .\.venv\Scripts\python.exe -ArgumentList scripts\phase7.py,run,--lane,<lane> -WindowStyle
+   Hidden -RedirectStandardOutput eval\results\_phase7_logs\<lane>.out.log` (that truncates the log: rename the
+   old one first). Progress 2026-10-29: flash-lite A/B/C/D r1 complete, A r2 at 42/72; qwen D r1 at 30/72.
+   Another reboot (03:33 local) killed both lanes again; restarted 15:30 local, old logs kept as
+   `*.2026-10-28.log`. Since 2026-10-29 the logon task "Courtside phase 7 lanes" runs
+   `scripts/phase7_restart.ps1` (skips a live lane, renames logs, starts the rest; decisions in
+   `_phase7_logs/restart.log`). Delete the task when phase 7 is done. After any reboot, check
+   `Get-CimInstance Win32_Process -Filter "Name like 'python%'"`.
    Then: score every run, `--verify-replay`, McNemar between configs (per rep), RESULTS.md with Wilson CIs,
    mean and range over reps, failure taxonomy (hand-labelled).
 5. Claude adapter for 7b: load the `claude-api` skill first; hard $20 cap.
